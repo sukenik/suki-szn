@@ -2,6 +2,7 @@ export interface iPlayer {
     id: string
     x: number
     y: number
+    angle: number
     hp: number
     name: string
     kills: number

@@ -11,6 +11,7 @@ class MainScene extends Phaser.Scene {
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
     private bullets!: Phaser.Physics.Arcade.Group
     private leaderboardText!: Phaser.GameObjects.Text
+    private playerEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
 
     constructor() {
         super('MainScene')
@@ -31,6 +32,15 @@ class MainScene extends Phaser.Scene {
             backgroundColor: 'rgba(0,0,0,0.5)',
             padding: { x: 10, y: 5 }
         }).setScrollFactor(0).setDepth(100)
+        this.playerEmitter = this.add.particles(0, 0, 'bullet', {
+            speed: 100,
+            scale: { start: 0.5, end: 0 },
+            alpha: { start: 1, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 300,
+            tint: 0xffaa00,
+            emitting: false
+        }).setDepth(1)
 
         if (this.input.keyboard) {
             this.cursors = this.input.keyboard.createCursorKeys()
@@ -54,6 +64,7 @@ class MainScene extends Phaser.Scene {
             this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                 if (playerInfo.id === otherPlayer.playerId) {
                     otherPlayer.setPosition(playerInfo.x, playerInfo.y)
+                    otherPlayer.setRotation(playerInfo.angle)
                 }
             })
         })
@@ -142,31 +153,49 @@ class MainScene extends Phaser.Scene {
     }
 
     update() {
-        if (!this.player || !this.cursors) return
+        if (!this.player || !this.cursors || !this.playerEmitter) return
 
         const speed = 200
-        const prevPosition = { x: this.player.x, y: this.player.y }
-
         const body = this.player.body as Phaser.Physics.Arcade.Body
+        const prevPosition = { x: this.player.x, y: this.player.y, angle: this.player.angle }
+
+        if (body.speed > 0) {
+            const tailPoint = { x: this.player.x, y: this.player.y + 20 }
+
+            Phaser.Math.RotateAround(
+                tailPoint, 
+                this.player.x, 
+                this.player.y, 
+                this.player.rotation
+            )
+
+            this.playerEmitter.setPosition(tailPoint.x, tailPoint.y)
+            this.playerEmitter.setAngle(this.player.angle + 90)
+
+            if (!this.playerEmitter.emitting) {
+                this.playerEmitter.start()
+            }
+        } else {
+            this.playerEmitter.stop()
+        }
 
         body.setVelocity(0)
 
-        if (this.cursors.left.isDown) {
-            body.setVelocityX(-speed)
-        } else if (this.cursors.right.isDown) {
-            body.setVelocityX(speed)
-        }
+        if (this.cursors.left.isDown) body.setVelocityX(-speed)
+        else if (this.cursors.right.isDown) body.setVelocityX(speed)
 
-        if (this.cursors.up.isDown) {
-            body.setVelocityY(-speed)
-        } else if (this.cursors.down.isDown) {
-            body.setVelocityY(speed)
-        }
+        if (this.cursors.up.isDown) body.setVelocityY(-speed)
+        else if (this.cursors.down.isDown) body.setVelocityY(speed)
 
-        if (prevPosition.x !== this.player.x || prevPosition.y !== this.player.y) {
+        if (body.velocity.x !== 0 || body.velocity.y !== 0) {
+            const newAngle = Math.atan2(body.velocity.y, body.velocity.x)
+            this.player.setRotation(newAngle + Math.PI / 2)
+        }
+        if (prevPosition.x !== this.player.x || prevPosition.y !== this.player.y || prevPosition.angle !== this.player.angle) {
             this.socket.emit(GameEvents.PLAYER_MOVEMENT, {
                 x: this.player.x,
-                y: this.player.y
+                y: this.player.y,
+                angle: this.player.angle
             })
         }
 

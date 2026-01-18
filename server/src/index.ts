@@ -96,6 +96,7 @@ io.on('connection', (socket) => {
         id: socket.id,
         x: spawnX,
         y: spawnY,
+        angle: 0,
         hp: PLAYER_HP,
         name: `Player-${socket.id.substring(0, 4)}`,
         kills: 0
@@ -111,13 +112,14 @@ io.on('connection', (socket) => {
 
     socket.broadcast.emit(GameEvents.PLAYER_JOINED, players[socket.id])
 
-    socket.on(GameEvents.PLAYER_MOVEMENT, (movementData: { x: number, y: number }) => {
+    socket.on(GameEvents.PLAYER_MOVEMENT, (movementData: { x: number, y: number, angle: number }) => {
         if (players[socket.id]) {
             const validatedX = Math.max(0, Math.min(GAME_WIDTH, movementData.x))
             const validatedY = Math.max(0, Math.min(GAME_HEIGHT, movementData.y))
 
             players[socket.id].x = validatedX
             players[socket.id].y = validatedY
+            players[socket.id].angle = movementData.angle
 
             socket.broadcast.emit(GameEvents.PLAYER_MOVED, players[socket.id])
         }
