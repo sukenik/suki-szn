@@ -63,8 +63,9 @@ class MainScene extends Phaser.Scene {
         this.socket.on(GameEvents.PLAYER_MOVED, (playerInfo: iPlayer) => {
             this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                 if (playerInfo.id === otherPlayer.playerId) {
-                    otherPlayer.setPosition(playerInfo.x, playerInfo.y)
-                    otherPlayer.setRotation(playerInfo.angle)
+                    otherPlayer.targetX = playerInfo.x
+                    otherPlayer.targetY = playerInfo.y
+                    otherPlayer.targetRotation = playerInfo.angle
                 }
             })
         })
@@ -202,9 +203,19 @@ class MainScene extends Phaser.Scene {
         const mainHp = (this.player as any).hp ?? PLAYER_HP
         this.updateHealthBar(this.player, mainHp)
 
-        this.otherPlayers.getChildren().forEach((gameObject: any) => {
-            const currentHp = gameObject.hp ?? PLAYER_HP
-            this.updateHealthBar(gameObject, currentHp)
+        this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
+            const currentHp = otherPlayer.hp ?? PLAYER_HP
+            this.updateHealthBar(otherPlayer, currentHp)
+
+            
+            if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
+                otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
+                otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
+
+                const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
+                const currentRad = otherPlayer.rotation
+                otherPlayer.rotation = Phaser.Math.Angle.RotateTo(currentRad, targetRad, 0.1)
+            }
         })
     }
     
