@@ -28,5 +28,7 @@ export interface iBullet {
     playerId: string
     x: number
     y: number
+    vx: number
+    vy: number
     angle: number
 }

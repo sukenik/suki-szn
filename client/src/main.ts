@@ -71,19 +71,37 @@ class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GameEvents.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
+            let hitX = 0
+            let hitY = 0
+
             if (data.playerId === this.socket.id && this.player) {
                 (this.player as any).hp = data.hp
+                hitX = this.player.x
+                hitY = this.player.y
+
                 this.player.setTint(0xff0000)
                 this.time.delayedCall(100, () => this.player.clearTint())
             } else {
                 this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                     if (otherPlayer.playerId === data.playerId) {
                         otherPlayer.hp = data.hp
+                        hitX = otherPlayer.x;
+                        hitY = otherPlayer.y
                         otherPlayer.setTint(0xffffff)
                         this.time.delayedCall(100, () => otherPlayer.setTint(0xff0000))
                     }
                 })
             }
+
+            if (hitX !== 0 && hitY !== 0) {
+                this.createBulletImpact(hitX, hitY);
+            }
+
+            this.bullets.getChildren().forEach((bullet: any) => {
+                if (bullet.bulletId === data.bulletId) {
+                    bullet.destroy()
+                }
+            })
         })
 
         this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
@@ -105,7 +123,7 @@ class MainScene extends Phaser.Scene {
             this.createBullet(bulletData)
         })
         
-        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number }) => {
+        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
             let deadPlayerX = 0
             let deadPlayerY = 0
 
@@ -134,6 +152,12 @@ class MainScene extends Phaser.Scene {
             if (deadPlayerX !== 0 && deadPlayerY !== 0) {
                 this.createExplosion(deadPlayerX, deadPlayerY)
             }
+
+            this.bullets.getChildren().forEach((bullet: any) => {
+                if (bullet.bulletId === data.bulletId) {
+                    bullet.destroy()
+                }
+            })
         })
 
         this.socket.on(GameEvents.LEADERBOARD_UPDATE, (data: { id: string, kills: number }[]) => {
@@ -265,37 +289,41 @@ class MainScene extends Phaser.Scene {
             }
         })
     }
-    
+
     shoot(pointer: Phaser.Input.Pointer) {
         if (!this.player) return
-
-        const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.x, pointer.y)
         
-        const bulletData: iBullet = {
-            id: Math.random().toString(36).substring(7),
-            playerId: this.socket.id!,
-            x: this.player.x,
-            y: this.player.y,
-            angle: angle
-        }
+        const angle = Phaser.Math.Angle.Between(
+            this.player.x,
+            this.player.y,
+            pointer.x + this.cameras.main.scrollX,
+            pointer.y + this.cameras.main.scrollY
+        )
 
-        this.socket.emit(GameEvents.PLAYER_SHOOT, bulletData)
-        
-        this.createBullet(bulletData)
+        const speed = 600
+        const vx = Math.cos(angle) * speed
+        const vy = Math.sin(angle) * speed
+
+        this.socket.emit(GameEvents.PLAYER_SHOOT, { vx, vy })
     }
 
     createBullet(bulletData: iBullet) {
         const bullet = this.bullets.create(bulletData.x, bulletData.y, 'bullet')
-        this.physics.velocityFromRotation(bulletData.angle, 400, bullet.body.velocity)
 
-        bullet.setCollideWorldBounds(true)
-        bullet.body.onWorldBounds = true
+        if (bullet) {
+            (bullet as any).bulletId = bulletData.id
+            bullet.setAngle(bulletData.angle)
+            bullet.body.setVelocity(bulletData.vx, bulletData.vy)
 
-        bullet.body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
-            if (body.gameObject === bullet) {
-                bullet.destroy()
-            }
-        })
+            bullet.setCollideWorldBounds(true)
+            bullet.body.onWorldBounds = true
+
+            bullet.body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
+                if (body && body.gameObject) {
+                    body.gameObject.destroy()
+                }
+            })
+        }
     }
 
     updateHealthBar(gameObject: any, hp: number) {
@@ -331,6 +359,25 @@ class MainScene extends Phaser.Scene {
 
         this.time.delayedCall(600, () => {
             explosion.destroy()
+        })
+    }
+
+    private createBulletImpact(x: number, y: number) {
+        const sparks = this.add.particles(x, y, 'bullet', {
+            speed: { min: 20, max: 100 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.3, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: 0xffff00,
+            lifespan: 200,
+            blendMode: 'ADD',
+            emitting: false
+        })
+
+        sparks.explode(10)
+
+        this.time.delayedCall(200, () => {
+            sparks.destroy()
         })
     }
 }

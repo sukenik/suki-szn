@@ -15,9 +15,9 @@ const io = new Server(httpServer, {
 
 const players: { [id: string]: iPlayer } = {}
 const bullets: iBullet[] = []
-const BULLET_SPEED = 10
 const BULLET_DAMAGE = 10
 const PLAYER_RADIUS = PLAYER_SIZE_IN_PX / 2
+const TICK_RATE = 60
 
 const generateNewLocation = () => {
     const padding = 50
@@ -30,9 +30,9 @@ const generateNewLocation = () => {
 setInterval(() => {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i]
-        
-        bullet.x += Math.cos(bullet.angle) * BULLET_SPEED
-        bullet.y += Math.sin(bullet.angle) * BULLET_SPEED
+
+        bullet.x += bullet.vx / TICK_RATE
+        bullet.y += bullet.vy / TICK_RATE
 
         for (const id in players) {
             const player = players[id]
@@ -43,6 +43,7 @@ setInterval(() => {
             
             if (dist < PLAYER_RADIUS) {
                 player.hp -= BULLET_DAMAGE
+                const bulletIdToDelete = bullet.id
 
                 if (player.hp <= 0) {
                     const killerId = bullet.playerId
@@ -61,7 +62,8 @@ setInterval(() => {
                     io.emit(GameEvents.PLAYER_DIED, {
                         playerId: id,
                         newX: player.x,
-                        newY: player.y
+                        newY: player.y,
+                        bulletId: bulletIdToDelete
                     })
                     const leaderboardData = Object.values(players).map(p => ({
                         id: p.id,
@@ -72,7 +74,7 @@ setInterval(() => {
                     io.emit(GameEvents.PLAYER_HIT, { 
                         playerId: id, 
                         hp: player.hp,
-                        bulletId: bullet.id 
+                        bulletId: bullet.id
                     })
                 }
 
@@ -85,7 +87,7 @@ setInterval(() => {
             bullets.splice(i, 1)
         }
     }
-}, 1000 / 60)
+}, 1000 / TICK_RATE)
 
 io.on('connection', (socket) => {
     console.log(`New player connected: ${socket.id}`)
@@ -125,9 +127,26 @@ io.on('connection', (socket) => {
         }
     })
     
-    socket.on(GameEvents.PLAYER_SHOOT, (bulletData: iBullet) => {
+    socket.on(GameEvents.PLAYER_SHOOT, (data: { vx: number, vy: number }) => {
+        const player = players[socket.id]
+        if (!player) return
+
+        const bulletId = Math.random().toString(36).substring(2, 9)
+        const angleInRadians = Math.atan2(data.vy, data.vx)
+        const angleInDegrees = angleInRadians * (180 / Math.PI)
+
+        const bulletData: iBullet = {
+            id: bulletId,
+            playerId: socket.id,
+            x: player.x,
+            y: player.y,
+            vx: data.vx,
+            vy: data.vy,
+            angle: angleInDegrees
+        }
+
         bullets.push(bulletData)
-        socket.broadcast.emit(GameEvents.NEW_BULLET, bulletData)
+        io.emit(GameEvents.NEW_BULLET, bulletData)
     })
 
     socket.on('disconnect', () => {
