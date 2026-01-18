@@ -89,6 +89,9 @@ class MainScene extends Phaser.Scene {
         this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
             this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                 if (playerId === otherPlayer.playerId) {
+                    if (otherPlayer.emitter) {
+                        otherPlayer.emitter.destroy()
+                    }
                     otherPlayer.destroy()
                 }
             })
@@ -103,18 +106,33 @@ class MainScene extends Phaser.Scene {
         })
         
         this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number }) => {
+            let deadPlayerX = 0
+            let deadPlayerY = 0
+
             if (data.playerId === this.socket.id && this.player) {
+                deadPlayerX = this.player.x
+                deadPlayerY = this.player.y
+
                 this.player.setPosition(data.newX, data.newY);
                 (this.player as any).hp = PLAYER_HP
                 
                 this.cameras.main.flash(500, 255, 0, 0)
             } else {
-                this.otherPlayers.getChildren().forEach((gameObject: any) => {
-                    if (gameObject.playerId === data.playerId) {
-                        gameObject.setPosition(data.newX, data.newY)
-                        gameObject.hp = PLAYER_HP
+                this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
+                    if (otherPlayer.playerId === data.playerId) {
+                        deadPlayerX = otherPlayer.x
+                        deadPlayerY = otherPlayer.y
+
+                        otherPlayer.setPosition(data.newX, data.newY)
+                        otherPlayer.targetX = data.newX
+                        otherPlayer.targetY = data.newY
+                        otherPlayer.hp = PLAYER_HP
                     }
                 })
+            }
+
+            if (deadPlayerX !== 0 && deadPlayerY !== 0) {
+                this.createExplosion(deadPlayerX, deadPlayerY)
             }
         })
 
@@ -141,7 +159,20 @@ class MainScene extends Phaser.Scene {
 
     addOtherPlayer(playerInfo: iPlayer) {
         const otherPlayer = this.add.sprite(playerInfo.x, playerInfo.y, 'ship');
-        (otherPlayer as any).playerId = playerInfo.id
+        (otherPlayer as any).playerId = playerInfo.id;
+        (otherPlayer as any).hp = playerInfo.hp
+
+        const emitter = this.add.particles(0, 0, 'bullet', {
+            speed: 100,
+            scale: { start: 0.4, end: 0 },
+            alpha: { start: 1, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 300,
+            tint: 0xff4400,
+            emitting: false
+        }).setDepth(1);
+
+        (otherPlayer as any).emitter = emitter
 
         otherPlayer.setTint(0xff0000)
         otherPlayer.setDisplaySize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
@@ -213,8 +244,24 @@ class MainScene extends Phaser.Scene {
                 otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
 
                 const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
-                const currentRad = otherPlayer.rotation
-                otherPlayer.rotation = Phaser.Math.Angle.RotateTo(currentRad, targetRad, 0.1)
+                otherPlayer.rotation = Phaser.Math.Angle.RotateTo(otherPlayer.rotation, targetRad, 0.1)
+
+                const emitter = otherPlayer.emitter
+                if (emitter) {
+                    const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
+                    
+                    if (distanceMoved > 0.5) {
+                        const tailPoint = { x: otherPlayer.x, y: otherPlayer.y + 20 }
+                        Phaser.Math.RotateAround(tailPoint, otherPlayer.x, otherPlayer.y, otherPlayer.rotation)
+                        
+                        emitter.setPosition(tailPoint.x, tailPoint.y)
+                        emitter.setAngle(otherPlayer.angle + 90)
+                        
+                        if (!emitter.emitting) emitter.start()
+                    } else {
+                        emitter.stop()
+                    }
+                }
             }
         })
     }
@@ -266,6 +313,26 @@ class MainScene extends Phaser.Scene {
         const healthWidth = Math.max(0, (hp / 100) * 40)
         bar.fillRect(gameObject.x - 20, gameObject.y - 30, healthWidth, 5)
     }
+
+    private createExplosion(x: number, y: number) {
+        const explosion = this.add.particles(x, y, 'bullet', {
+            speed: { min: 50, max: 150 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 1, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: [0xff0000, 0xffaa00, 0xffffff],
+            lifespan: 600,
+            gravityY: 0,
+            blendMode: 'ADD',
+            emitting: false
+        })
+
+        explosion.explode(40)
+
+        this.time.delayedCall(600, () => {
+            explosion.destroy()
+        })
+    }
 }
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -275,6 +342,6 @@ const config: Phaser.Types.Core.GameConfig = {
     backgroundColor: '#2d2d2d',
     physics: { default: 'arcade' },
     scene: MainScene
-};
+}
 
 new Phaser.Game(config)
