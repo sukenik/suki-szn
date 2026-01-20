@@ -11,6 +11,7 @@ class MainScene extends Phaser.Scene {
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
     private bullets!: Phaser.Physics.Arcade.Group
     private leaderboardText!: Phaser.GameObjects.Text
+    private playerEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
 
     constructor() {
         super('MainScene')
@@ -31,6 +32,15 @@ class MainScene extends Phaser.Scene {
             backgroundColor: 'rgba(0,0,0,0.5)',
             padding: { x: 10, y: 5 }
         }).setScrollFactor(0).setDepth(100)
+        this.playerEmitter = this.add.particles(0, 0, 'bullet', {
+            speed: 100,
+            scale: { start: 0.5, end: 0 },
+            alpha: { start: 1, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 300,
+            tint: 0xffaa00,
+            emitting: false
+        }).setDepth(1)
 
         if (this.input.keyboard) {
             this.cursors = this.input.keyboard.createCursorKeys()
@@ -53,30 +63,53 @@ class MainScene extends Phaser.Scene {
         this.socket.on(GameEvents.PLAYER_MOVED, (playerInfo: iPlayer) => {
             this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                 if (playerInfo.id === otherPlayer.playerId) {
-                    otherPlayer.setPosition(playerInfo.x, playerInfo.y)
+                    otherPlayer.targetX = playerInfo.x
+                    otherPlayer.targetY = playerInfo.y
+                    otherPlayer.targetRotation = playerInfo.angle
                 }
             })
         })
 
         this.socket.on(GameEvents.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
+            let hitX = 0
+            let hitY = 0
+
             if (data.playerId === this.socket.id && this.player) {
                 (this.player as any).hp = data.hp
+                hitX = this.player.x
+                hitY = this.player.y
+
                 this.player.setTint(0xff0000)
                 this.time.delayedCall(100, () => this.player.clearTint())
             } else {
                 this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                     if (otherPlayer.playerId === data.playerId) {
                         otherPlayer.hp = data.hp
+                        hitX = otherPlayer.x;
+                        hitY = otherPlayer.y
                         otherPlayer.setTint(0xffffff)
                         this.time.delayedCall(100, () => otherPlayer.setTint(0xff0000))
                     }
                 })
             }
+
+            if (hitX !== 0 && hitY !== 0) {
+                this.createBulletImpact(hitX, hitY);
+            }
+
+            this.bullets.getChildren().forEach((bullet: any) => {
+                if (bullet.bulletId === data.bulletId) {
+                    bullet.destroy()
+                }
+            })
         })
 
         this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
             this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
                 if (playerId === otherPlayer.playerId) {
+                    if (otherPlayer.emitter) {
+                        otherPlayer.emitter.destroy()
+                    }
                     otherPlayer.destroy()
                 }
             })
@@ -90,20 +123,41 @@ class MainScene extends Phaser.Scene {
             this.createBullet(bulletData)
         })
         
-        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number }) => {
+        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
+            let deadPlayerX = 0
+            let deadPlayerY = 0
+
             if (data.playerId === this.socket.id && this.player) {
+                deadPlayerX = this.player.x
+                deadPlayerY = this.player.y
+
                 this.player.setPosition(data.newX, data.newY);
                 (this.player as any).hp = PLAYER_HP
                 
                 this.cameras.main.flash(500, 255, 0, 0)
             } else {
-                this.otherPlayers.getChildren().forEach((gameObject: any) => {
-                    if (gameObject.playerId === data.playerId) {
-                        gameObject.setPosition(data.newX, data.newY)
-                        gameObject.hp = PLAYER_HP
+                this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
+                    if (otherPlayer.playerId === data.playerId) {
+                        deadPlayerX = otherPlayer.x
+                        deadPlayerY = otherPlayer.y
+
+                        otherPlayer.setPosition(data.newX, data.newY)
+                        otherPlayer.targetX = data.newX
+                        otherPlayer.targetY = data.newY
+                        otherPlayer.hp = PLAYER_HP
                     }
                 })
             }
+
+            if (deadPlayerX !== 0 && deadPlayerY !== 0) {
+                this.createExplosion(deadPlayerX, deadPlayerY)
+            }
+
+            this.bullets.getChildren().forEach((bullet: any) => {
+                if (bullet.bulletId === data.bulletId) {
+                    bullet.destroy()
+                }
+            })
         })
 
         this.socket.on(GameEvents.LEADERBOARD_UPDATE, (data: { id: string, kills: number }[]) => {
@@ -129,7 +183,20 @@ class MainScene extends Phaser.Scene {
 
     addOtherPlayer(playerInfo: iPlayer) {
         const otherPlayer = this.add.sprite(playerInfo.x, playerInfo.y, 'ship');
-        (otherPlayer as any).playerId = playerInfo.id
+        (otherPlayer as any).playerId = playerInfo.id;
+        (otherPlayer as any).hp = playerInfo.hp
+
+        const emitter = this.add.particles(0, 0, 'bullet', {
+            speed: 100,
+            scale: { start: 0.4, end: 0 },
+            alpha: { start: 1, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 300,
+            tint: 0xff4400,
+            emitting: false
+        }).setDepth(1);
+
+        (otherPlayer as any).emitter = emitter
 
         otherPlayer.setTint(0xff0000)
         otherPlayer.setDisplaySize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
@@ -142,73 +209,121 @@ class MainScene extends Phaser.Scene {
     }
 
     update() {
-        if (!this.player || !this.cursors) return
+        if (!this.player || !this.cursors || !this.playerEmitter) return
 
         const speed = 200
-        const prevPosition = { x: this.player.x, y: this.player.y }
-
         const body = this.player.body as Phaser.Physics.Arcade.Body
+        const prevPosition = { x: this.player.x, y: this.player.y, angle: this.player.angle }
+
+        if (body.speed > 0) {
+            const tailPoint = { x: this.player.x, y: this.player.y + 20 }
+
+            Phaser.Math.RotateAround(
+                tailPoint, 
+                this.player.x, 
+                this.player.y, 
+                this.player.rotation
+            )
+
+            this.playerEmitter.setPosition(tailPoint.x, tailPoint.y)
+            this.playerEmitter.setAngle(this.player.angle + 90)
+
+            if (!this.playerEmitter.emitting) {
+                this.playerEmitter.start()
+            }
+        } else {
+            this.playerEmitter.stop()
+        }
 
         body.setVelocity(0)
 
-        if (this.cursors.left.isDown) {
-            body.setVelocityX(-speed)
-        } else if (this.cursors.right.isDown) {
-            body.setVelocityX(speed)
-        }
+        if (this.cursors.left.isDown) body.setVelocityX(-speed)
+        else if (this.cursors.right.isDown) body.setVelocityX(speed)
 
-        if (this.cursors.up.isDown) {
-            body.setVelocityY(-speed)
-        } else if (this.cursors.down.isDown) {
-            body.setVelocityY(speed)
-        }
+        if (this.cursors.up.isDown) body.setVelocityY(-speed)
+        else if (this.cursors.down.isDown) body.setVelocityY(speed)
 
-        if (prevPosition.x !== this.player.x || prevPosition.y !== this.player.y) {
+        if (body.velocity.x !== 0 || body.velocity.y !== 0) {
+            const newAngle = Math.atan2(body.velocity.y, body.velocity.x)
+            this.player.setRotation(newAngle + Math.PI / 2)
+        }
+        if (prevPosition.x !== this.player.x || prevPosition.y !== this.player.y || prevPosition.angle !== this.player.angle) {
             this.socket.emit(GameEvents.PLAYER_MOVEMENT, {
                 x: this.player.x,
-                y: this.player.y
+                y: this.player.y,
+                angle: this.player.angle
             })
         }
 
         const mainHp = (this.player as any).hp ?? PLAYER_HP
         this.updateHealthBar(this.player, mainHp)
 
-        this.otherPlayers.getChildren().forEach((gameObject: any) => {
-            const currentHp = gameObject.hp ?? PLAYER_HP
-            this.updateHealthBar(gameObject, currentHp)
+        this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
+            const currentHp = otherPlayer.hp ?? PLAYER_HP
+            this.updateHealthBar(otherPlayer, currentHp)
+
+            
+            if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
+                otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
+                otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
+
+                const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
+                otherPlayer.rotation = Phaser.Math.Angle.RotateTo(otherPlayer.rotation, targetRad, 0.1)
+
+                const emitter = otherPlayer.emitter
+                if (emitter) {
+                    const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
+                    
+                    if (distanceMoved > 0.5) {
+                        const tailPoint = { x: otherPlayer.x, y: otherPlayer.y + 20 }
+                        Phaser.Math.RotateAround(tailPoint, otherPlayer.x, otherPlayer.y, otherPlayer.rotation)
+                        
+                        emitter.setPosition(tailPoint.x, tailPoint.y)
+                        emitter.setAngle(otherPlayer.angle + 90)
+                        
+                        if (!emitter.emitting) emitter.start()
+                    } else {
+                        emitter.stop()
+                    }
+                }
+            }
         })
     }
-    
+
     shoot(pointer: Phaser.Input.Pointer) {
         if (!this.player) return
-
-        const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.x, pointer.y)
         
-        const bulletData: iBullet = {
-            id: Math.random().toString(36).substring(7),
-            playerId: this.socket.id!,
-            x: this.player.x,
-            y: this.player.y,
-            angle: angle
-        }
+        const angle = Phaser.Math.Angle.Between(
+            this.player.x,
+            this.player.y,
+            pointer.x + this.cameras.main.scrollX,
+            pointer.y + this.cameras.main.scrollY
+        )
 
-        this.socket.emit(GameEvents.PLAYER_SHOOT, bulletData)
-        
-        this.createBullet(bulletData)
+        const speed = 600
+        const vx = Math.cos(angle) * speed
+        const vy = Math.sin(angle) * speed
+
+        this.socket.emit(GameEvents.PLAYER_SHOOT, { vx, vy })
     }
 
     createBullet(bulletData: iBullet) {
         const bullet = this.bullets.create(bulletData.x, bulletData.y, 'bullet')
-        this.physics.velocityFromRotation(bulletData.angle, 400, bullet.body.velocity)
 
-        bullet.setCollideWorldBounds(true)
-        bullet.body.onWorldBounds = true
+        if (bullet) {
+            (bullet as any).bulletId = bulletData.id
+            bullet.setAngle(bulletData.angle)
+            bullet.body.setVelocity(bulletData.vx, bulletData.vy)
 
-        bullet.body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
-            if (body.gameObject === bullet) {
-                bullet.destroy()
-            }
-        })
+            bullet.setCollideWorldBounds(true)
+            bullet.body.onWorldBounds = true
+
+            bullet.body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
+                if (body && body.gameObject) {
+                    body.gameObject.destroy()
+                }
+            })
+        }
     }
 
     updateHealthBar(gameObject: any, hp: number) {
@@ -226,6 +341,45 @@ class MainScene extends Phaser.Scene {
         const healthWidth = Math.max(0, (hp / 100) * 40)
         bar.fillRect(gameObject.x - 20, gameObject.y - 30, healthWidth, 5)
     }
+
+    private createExplosion(x: number, y: number) {
+        const explosion = this.add.particles(x, y, 'bullet', {
+            speed: { min: 50, max: 150 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 1, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: [0xff0000, 0xffaa00, 0xffffff],
+            lifespan: 600,
+            gravityY: 0,
+            blendMode: 'ADD',
+            emitting: false
+        })
+
+        explosion.explode(40)
+
+        this.time.delayedCall(600, () => {
+            explosion.destroy()
+        })
+    }
+
+    private createBulletImpact(x: number, y: number) {
+        const sparks = this.add.particles(x, y, 'bullet', {
+            speed: { min: 20, max: 100 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.3, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: 0xffff00,
+            lifespan: 200,
+            blendMode: 'ADD',
+            emitting: false
+        })
+
+        sparks.explode(10)
+
+        this.time.delayedCall(200, () => {
+            sparks.destroy()
+        })
+    }
 }
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -235,6 +389,6 @@ const config: Phaser.Types.Core.GameConfig = {
     backgroundColor: '#2d2d2d',
     physics: { default: 'arcade' },
     scene: MainScene
-};
+}
 
 new Phaser.Game(config)

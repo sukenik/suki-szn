@@ -1,7 +1,9 @@
 export interface iPlayer {
     id: string
+    firebaseId: string
     x: number
     y: number
+    angle: number
     hp: number
     name: string
     kills: number
@@ -17,7 +19,8 @@ export const GameEvents = {
     PLAYER_SHOOT: 'playerShoot',
     PLAYER_HIT: 'playerHit',
     PLAYER_DIED: 'playerDied',
-    LEADERBOARD_UPDATE: 'leaderboardUpdate'
+    LEADERBOARD_UPDATE: 'leaderboardUpdate',
+    REQUEST_INITIAL_STATE: 'requestInitialState'
 } as const
 
 export type GameEventType = typeof GameEvents[keyof typeof GameEvents]
@@ -27,5 +30,7 @@ export interface iBullet {
     playerId: string
     x: number
     y: number
+    vx: number
+    vy: number
     angle: number
 }
