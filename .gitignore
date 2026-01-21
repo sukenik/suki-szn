@@ -1,3 +1,4 @@
 */node_modules
 server/service-account.json
 */.env
+*/dist
