@@ -22,6 +22,28 @@ admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
 })
 
+io.use((socket, next) => {
+    const ip = socket.handshake.address
+    const count = connectionsByIP.get(ip) || 0
+    const maxConnectionsAllowed = process.env.MAX_CONNECTIONS_PER_IP !== undefined
+        ? Number(process.env.MAX_CONNECTIONS_PER_IP)
+        : 5
+
+    if (count > maxConnectionsAllowed) {
+        return next(new Error('Too many connections from this IP'))
+    }
+
+    connectionsByIP.set(ip, count + 1)
+
+    socket.on('disconnect', () => {
+        const currentCount = connectionsByIP.get(ip) || 1
+        connectionsByIP.set(ip, currentCount - 1)
+    })
+
+    next()
+})
+
+const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
 const bullets: iBullet[] = []
 const BULLET_DAMAGE = 10
