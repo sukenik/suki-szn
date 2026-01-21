@@ -289,8 +289,8 @@ const setupGameEvents = async (socket: Socket) => {
     })
 }
 
-const PORT = 3000
+const port = process.env.PORT || 3000
 
-httpServer.listen(PORT, () => {
-    console.log(`🚀 suki-szn server runs on http://localhost:${PORT}`)
+httpServer.listen(port, () => {
+    console.log(`🚀 suki-szn server runs on http://localhost:${port}`)
 })
