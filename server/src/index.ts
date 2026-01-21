@@ -2,7 +2,7 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { GameEvents, iBullet, iPlayer } from '../../shared/types'
-import { CLIENT_URL, GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
+import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
 import * as admin from 'firebase-admin'
 import 'dotenv/config'
 import { supabase } from './db'
@@ -11,12 +11,12 @@ const app = express()
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
     cors: {
-        origin: CLIENT_URL,
+        origin: process.env.CLIENT_URL ?? 'http://localhost:5173',
         methods: ['GET', 'POST']
     }
 })
 
-const serviceAccount = require('../service-account.json')
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT as string)
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
