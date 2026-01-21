@@ -4,9 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>suki-szn</title>
+    <link rel="stylesheet" href="styles.css">
   </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+  <body style="height: 100%; width: 100%; margin: 0; overflow: hidden">
+    <script type="module" src="/src/login.ts"></script>
+    <div id="ui-layer">
+      <div id="login-screen" class="card">
+        <div class="logo">
+            <span class="rocket">🚀</span>
+            <h1>Galactic Wars</h1>
+        </div>
+        <div id="email-login-form">
+          <input type="text" id="username-input" placeholder="Username" class="login-input">
+          <input type="email" id="email-input" placeholder="Email" class="login-input">
+          <div class="password-wrapper">
+            <input type="password" id="pass-input" placeholder="Password" class="login-input">
+            <span id="toggle-password" class="password-toggle">👁️</span>
+          </div>
+          
+          <div class="auth-btns">
+              <button id="email-login-btn" class="secondary-btn">Login</button>
+              <button id="email-reg-btn" class="secondary-btn">Sign-up</button>
+          </div>
+        </div>
+
+        <div class="separator">Or</div>
+        <button id="login-button" class="google-btn">
+            <img src="./assets/Google.png" alt="Google logo">
+            <span>Continue with Google</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="game-container"></div>
   </body>
 </html>

@@ -1,17 +1,22 @@
 import Phaser from 'phaser'
-import { io, Socket } from 'socket.io-client'
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX, SERVER_URL } from '../../shared/consts'
+import { Socket } from 'socket.io-client'
+import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
 import type { iBullet, iPlayer } from '../../shared/types'
 import { GameEvents } from '../../shared/types'
+import { SpaceShip } from './entities/SpaceShip'
+import type { iBulletSprite } from './entities/types'
 
-class MainScene extends Phaser.Scene {
+export class MainScene extends Phaser.Scene {
     private socket!: Socket
-    private player!: Phaser.Physics.Arcade.Sprite
+    private playerContainer!: SpaceShip
     private otherPlayers!: Phaser.GameObjects.Group
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
     private bullets!: Phaser.Physics.Arcade.Group
     private leaderboardText!: Phaser.GameObjects.Text
-    private playerEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+    private starfield!: Phaser.GameObjects.TileSprite
+    private minimap!: Phaser.Cameras.Scene2D.Camera
+    private minimapBorder!: Phaser.GameObjects.Graphics
+    private lastSentPosition = { x: 0, y: 0, angle: 0 }
 
     constructor() {
         super('MainScene')
@@ -20,305 +25,210 @@ class MainScene extends Phaser.Scene {
     preload() {
         this.load.image('ship', 'https://labs.phaser.io/assets/sprites/fmship.png')
         this.load.image('bullet', 'https://labs.phaser.io/assets/sprites/bullets/bullet7.png')
+        this.load.image('stars', 'assets/stars.png')
     }
 
     create() {
-        this.socket = io(SERVER_URL)
-        this.otherPlayers = this.add.group()
-        this.bullets = this.physics.add.group()
-        this.leaderboardText = this.add.text(10, 10, 'Loading Leaderboard...', {
-            fontSize: '18px',
-            color: '#ffffff',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            padding: { x: 10, y: 5 }
-        }).setScrollFactor(0).setDepth(100)
-        this.playerEmitter = this.add.particles(0, 0, 'bullet', {
-            speed: 100,
-            scale: { start: 0.5, end: 0 },
-            alpha: { start: 1, end: 0 },
-            blendMode: 'ADD',
-            lifespan: 300,
-            tint: 0xffaa00,
-            emitting: false
-        }).setDepth(1)
+        this.socket = this.game.registry.get('socket')
 
-        if (this.input.keyboard) {
-            this.cursors = this.input.keyboard.createCursorKeys()
+        const MAP_SIZE = 200
+        const MAP_MARGIN = 20
+
+        this.setupGroups()
+        this.setupPhysics()
+        this.setupBackground()
+        this.setupMinimap(MAP_SIZE, MAP_MARGIN)
+        this.setupControls()
+        this.setupNetworkEvents()
+        this.setupLeaderboard()
+
+        this.scale.on('resize', () => {
+            if (this.starfield) {
+                this.starfield.setSize(this.scale.width, this.scale.height)
+            }
+            this.updateMinimapLayout(MAP_SIZE, MAP_MARGIN)
+        })
+
+        this.socket = this.game.registry.get('socket')
+
+        const attemptRequest = () => {
+            if (this.socket.connected) {
+                this.socket.emit(GameEvents.REQUEST_INITIAL_STATE)
+            }
         }
 
-        this.socket.on(GameEvents.CURRENT_PLAYERS, (players: { [id: string]: iPlayer }) => {
-            Object.keys(players).forEach((id) => {
-                if (id === this.socket.id) {
-                    this.addMainPlayer(players[id])
-                } else {
-                    this.addOtherPlayer(players[id])
-                }
-            })
-        })
+        attemptRequest()
 
-        this.socket.on(GameEvents.PLAYER_JOINED, (playerInfo: iPlayer) => {
-            this.addOtherPlayer(playerInfo)
-        })
-
-        this.socket.on(GameEvents.PLAYER_MOVED, (playerInfo: iPlayer) => {
-            this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
-                if (playerInfo.id === otherPlayer.playerId) {
-                    otherPlayer.targetX = playerInfo.x
-                    otherPlayer.targetY = playerInfo.y
-                    otherPlayer.targetRotation = playerInfo.angle
-                }
-            })
-        })
-
-        this.socket.on(GameEvents.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
-            let hitX = 0
-            let hitY = 0
-
-            if (data.playerId === this.socket.id && this.player) {
-                (this.player as any).hp = data.hp
-                hitX = this.player.x
-                hitY = this.player.y
-
-                this.player.setTint(0xff0000)
-                this.time.delayedCall(100, () => this.player.clearTint())
-            } else {
-                this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
-                    if (otherPlayer.playerId === data.playerId) {
-                        otherPlayer.hp = data.hp
-                        hitX = otherPlayer.x;
-                        hitY = otherPlayer.y
-                        otherPlayer.setTint(0xffffff)
-                        this.time.delayedCall(100, () => otherPlayer.setTint(0xff0000))
-                    }
-                })
+        this.time.delayedCall(2000, () => {
+            if (!this.playerContainer) {
+                attemptRequest()
             }
-
-            if (hitX !== 0 && hitY !== 0) {
-                this.createBulletImpact(hitX, hitY);
-            }
-
-            this.bullets.getChildren().forEach((bullet: any) => {
-                if (bullet.bulletId === data.bulletId) {
-                    bullet.destroy()
-                }
-            })
         })
 
-        this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
-            this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
-                if (playerId === otherPlayer.playerId) {
-                    if (otherPlayer.emitter) {
-                        otherPlayer.emitter.destroy()
-                    }
-                    otherPlayer.destroy()
-                }
-            })
-        })
-
-        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-            this.shoot(pointer)
-        })
-        
-        this.socket.on(GameEvents.NEW_BULLET, (bulletData: iBullet) => {
-            this.createBullet(bulletData)
-        })
-        
-        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
-            let deadPlayerX = 0
-            let deadPlayerY = 0
-
-            if (data.playerId === this.socket.id && this.player) {
-                deadPlayerX = this.player.x
-                deadPlayerY = this.player.y
-
-                this.player.setPosition(data.newX, data.newY);
-                (this.player as any).hp = PLAYER_HP
-                
-                this.cameras.main.flash(500, 255, 0, 0)
-            } else {
-                this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
-                    if (otherPlayer.playerId === data.playerId) {
-                        deadPlayerX = otherPlayer.x
-                        deadPlayerY = otherPlayer.y
-
-                        otherPlayer.setPosition(data.newX, data.newY)
-                        otherPlayer.targetX = data.newX
-                        otherPlayer.targetY = data.newY
-                        otherPlayer.hp = PLAYER_HP
-                    }
-                })
-            }
-
-            if (deadPlayerX !== 0 && deadPlayerY !== 0) {
-                this.createExplosion(deadPlayerX, deadPlayerY)
-            }
-
-            this.bullets.getChildren().forEach((bullet: any) => {
-                if (bullet.bulletId === data.bulletId) {
-                    bullet.destroy()
-                }
-            })
-        })
-
-        this.socket.on(GameEvents.LEADERBOARD_UPDATE, (data: { id: string, kills: number }[]) => {
-            let text = 'Leaderboard:\n'
-            const sorted = data.sort((a, b) => b.kills - a.kills)
-
-            sorted.forEach(p => {
-                const name = p.id === this.socket.id ? 'You' : p.id.substring(0, 4)
-                text += `${name}: ${p.kills}\n`
-            })
-            this.leaderboardText.setText(text)
-        })
+        this.cameras.main.ignore(this.add.group())
     }
 
     addMainPlayer(playerInfo: iPlayer) {
-        this.player = this.physics.add.sprite(playerInfo.x, playerInfo.y, 'ship') as any
-        this.player.setDisplaySize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
+        if (this.playerContainer) this.playerContainer.destroy()
 
-        if (this.player.body instanceof Phaser.Physics.Arcade.Body) {
-            this.player.body.setCollideWorldBounds(true)
+        const container = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, true)
+        this.playerContainer = container
+
+        this.physics.world.enable(container)
+        const body = container.body as Phaser.Physics.Arcade.Body
+        body.setCollideWorldBounds(true)
+        body.setSize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
+        body.setOffset(-PLAYER_SIZE_IN_PX / 2, -PLAYER_SIZE_IN_PX / 2)
+
+        this.cameras.main.startFollow(container, true, 0.1, 0.1)
+        
+        if (this.minimap) {
+            this.minimap.ignore([container.nameTag, container.healthBar])
         }
     }
 
     addOtherPlayer(playerInfo: iPlayer) {
-        const otherPlayer = this.add.sprite(playerInfo.x, playerInfo.y, 'ship');
-        (otherPlayer as any).playerId = playerInfo.id;
-        (otherPlayer as any).hp = playerInfo.hp
+        const otherPlayer = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, false)
 
-        const emitter = this.add.particles(0, 0, 'bullet', {
-            speed: 100,
-            scale: { start: 0.4, end: 0 },
-            alpha: { start: 1, end: 0 },
-            blendMode: 'ADD',
-            lifespan: 300,
-            tint: 0xff4400,
-            emitting: false
-        }).setDepth(1);
-
-        (otherPlayer as any).emitter = emitter
-
-        otherPlayer.setTint(0xff0000)
-        otherPlayer.setDisplaySize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
+        this.physics.world.enable(otherPlayer)
 
         if (otherPlayer.body instanceof Phaser.Physics.Arcade.Body) {
             otherPlayer.body.setCollideWorldBounds(true)
+            otherPlayer.body.setSize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
+            otherPlayer.body.setOffset(-PLAYER_SIZE_IN_PX / 2, -PLAYER_SIZE_IN_PX / 2)
+        }
+
+        if (this.minimap) {
+            this.minimap.ignore([otherPlayer.nameTag, otherPlayer.healthBar])
         }
 
         this.otherPlayers.add(otherPlayer)
     }
 
     update() {
-        if (!this.player || !this.cursors || !this.playerEmitter) return
-
-        const speed = 200
-        const body = this.player.body as Phaser.Physics.Arcade.Body
-        const prevPosition = { x: this.player.x, y: this.player.y, angle: this.player.angle }
-
-        if (body.speed > 0) {
-            const tailPoint = { x: this.player.x, y: this.player.y + 20 }
-
-            Phaser.Math.RotateAround(
-                tailPoint, 
-                this.player.x, 
-                this.player.y, 
-                this.player.rotation
-            )
-
-            this.playerEmitter.setPosition(tailPoint.x, tailPoint.y)
-            this.playerEmitter.setAngle(this.player.angle + 90)
-
-            if (!this.playerEmitter.emitting) {
-                this.playerEmitter.start()
-            }
-        } else {
-            this.playerEmitter.stop()
+        if (this.starfield) {
+            this.starfield.tilePositionX = this.cameras.main.scrollX * 0.2
+            this.starfield.tilePositionY = this.cameras.main.scrollY * 0.2
         }
 
-        body.setVelocity(0)
+        if (!this.playerContainer || !this.cursors) return
+
+        const body = this.playerContainer.body as Phaser.Physics.Arcade.Body
+        const speed = 200
 
         if (this.cursors.left.isDown) body.setVelocityX(-speed)
         else if (this.cursors.right.isDown) body.setVelocityX(speed)
+        else body.setVelocityX(0)
 
         if (this.cursors.up.isDown) body.setVelocityY(-speed)
         else if (this.cursors.down.isDown) body.setVelocityY(speed)
+        else body.setVelocityY(0)
 
-        if (body.velocity.x !== 0 || body.velocity.y !== 0) {
+        const isMoving = body.velocity.x !== 0 || body.velocity.y !== 0
+
+        if (isMoving) {
             const newAngle = Math.atan2(body.velocity.y, body.velocity.x)
-            this.player.setRotation(newAngle + Math.PI / 2)
+            this.playerContainer.ship.setRotation(newAngle + Math.PI / 2)
+
+            this.playerContainer.updateEmitter()
+
+            if (!this.playerContainer.emitter.emitting) this.playerContainer.emitter.start()
+        } else {
+            this.playerContainer.emitter.stop()
         }
-        if (prevPosition.x !== this.player.x || prevPosition.y !== this.player.y || prevPosition.angle !== this.player.angle) {
+
+        if (
+            this.lastSentPosition.x !== this.playerContainer.x || 
+            this.lastSentPosition.y !== this.playerContainer.y || 
+            this.lastSentPosition.angle !== this.playerContainer.ship.angle
+        ) {
             this.socket.emit(GameEvents.PLAYER_MOVEMENT, {
-                x: this.player.x,
-                y: this.player.y,
-                angle: this.player.angle
+                x: this.playerContainer.x,
+                y: this.playerContainer.y,
+                angle: this.playerContainer.ship.angle
             })
+
+            this.lastSentPosition = {
+                x: this.playerContainer.x,
+                y: this.playerContainer.y,
+                angle: this.playerContainer.ship.angle
+            }
         }
 
-        const mainHp = (this.player as any).hp ?? PLAYER_HP
-        this.updateHealthBar(this.player, mainHp)
+        this.playerContainer.redrawHealthBar()
 
-        this.otherPlayers.getChildren().forEach((otherPlayer: any) => {
-            const currentHp = otherPlayer.hp ?? PLAYER_HP
-            this.updateHealthBar(otherPlayer, currentHp)
+        this.otherPlayers.getChildren().forEach(obj => {
+            const otherPlayer = obj as SpaceShip
 
-            
             if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
                 otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
                 otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
 
-                const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
-                otherPlayer.rotation = Phaser.Math.Angle.RotateTo(otherPlayer.rotation, targetRad, 0.1)
+                const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation || 0)
+                otherPlayer.ship.rotation = Phaser.Math.Angle.RotateTo(otherPlayer.ship.rotation, targetRad, 0.1)
 
-                const emitter = otherPlayer.emitter
-                if (emitter) {
-                    const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
-                    
-                    if (distanceMoved > 0.5) {
-                        const tailPoint = { x: otherPlayer.x, y: otherPlayer.y + 20 }
-                        Phaser.Math.RotateAround(tailPoint, otherPlayer.x, otherPlayer.y, otherPlayer.rotation)
-                        
-                        emitter.setPosition(tailPoint.x, tailPoint.y)
-                        emitter.setAngle(otherPlayer.angle + 90)
-                        
-                        if (!emitter.emitting) emitter.start()
-                    } else {
-                        emitter.stop()
-                    }
+                const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
+                
+                if (distanceMoved > 0.5) {
+                    otherPlayer.updateEmitter()
+                    if (!otherPlayer.emitter.emitting) otherPlayer.emitter.start()
+                } else {
+                    otherPlayer.emitter.stop()
                 }
             }
+
+            otherPlayer.redrawHealthBar()
         })
     }
 
     shoot(pointer: Phaser.Input.Pointer) {
-        if (!this.player) return
-        
-        const angle = Phaser.Math.Angle.Between(
-            this.player.x,
-            this.player.y,
+        if (!this.playerContainer || !this.socket.id) return
+
+        const container = this.playerContainer
+
+        const angleInRadians = Phaser.Math.Angle.Between(
+            container.x,
+            container.y,
             pointer.x + this.cameras.main.scrollX,
             pointer.y + this.cameras.main.scrollY
         )
 
         const speed = 600
-        const vx = Math.cos(angle) * speed
-        const vy = Math.sin(angle) * speed
+        const vx = Math.cos(angleInRadians) * speed
+        const vy = Math.sin(angleInRadians) * speed
 
-        this.socket.emit(GameEvents.PLAYER_SHOOT, { vx, vy })
+        const tempId = 'local_' + Date.now()
+        this.createBullet({
+            id: tempId,
+            playerId: this.socket.id,
+            x: container.x,
+            y: container.y,
+            vx: vx,
+            vy: vy,
+            angle: Phaser.Math.RadToDeg(angleInRadians)
+        })
+
+        this.socket.emit(GameEvents.PLAYER_SHOOT, {
+            vx,
+            vy,
+            x: this.playerContainer.x,
+            y: this.playerContainer.y
+        })
     }
 
     createBullet(bulletData: iBullet) {
-        const bullet = this.bullets.create(bulletData.x, bulletData.y, 'bullet')
+        const bullet = this.bullets.create(bulletData.x, bulletData.y, 'bullet') as iBulletSprite
+        const body = bullet.body as Phaser.Physics.Arcade.Body
 
-        if (bullet) {
-            (bullet as any).bulletId = bulletData.id
+        if (body) {
+            bullet.bulletId = bulletData.id
             bullet.setAngle(bulletData.angle)
-            bullet.body.setVelocity(bulletData.vx, bulletData.vy)
+            body.setVelocity(bulletData.vx, bulletData.vy)
 
             bullet.setCollideWorldBounds(true)
-            bullet.body.onWorldBounds = true
+            body.onWorldBounds = true
 
-            bullet.body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
+            body.world.on('worldbounds', (body: Phaser.Physics.Arcade.Body) => {
                 if (body && body.gameObject) {
                     body.gameObject.destroy()
                 }
@@ -326,23 +236,85 @@ class MainScene extends Phaser.Scene {
         }
     }
 
-    updateHealthBar(gameObject: any, hp: number) {
-        if (!gameObject.healthBar) {
-            gameObject.healthBar = this.add.graphics()
-        }
-
-        const bar = gameObject.healthBar
-        bar.clear()
-
-        bar.fillStyle(0xff0000)
-        bar.fillRect(gameObject.x - 20, gameObject.y - 30, 40, 5)
-
-        bar.fillStyle(0x00ff00)
-        const healthWidth = Math.max(0, (hp / 100) * 40)
-        bar.fillRect(gameObject.x - 20, gameObject.y - 30, healthWidth, 5)
+    private setupGroups = () => {
+        this.otherPlayers = this.add.group()
+        this.bullets = this.physics.add.group()
     }
 
-    private createExplosion(x: number, y: number) {
+    private setupPhysics = () => {
+        this.physics.world.setBounds(0, 0, GAME_WIDTH, GAME_HEIGHT)
+        
+        this.physics.add.overlap(this.bullets, [], (_, bulletObj) => {
+            const bullet = bulletObj as iBulletSprite
+            this.createBulletImpact(bullet.x, bullet.y)
+            bullet.destroy()
+        })
+
+        this.cameras.main.setRoundPixels(true)
+    }
+
+    private setupBackground = () => {
+        this.starfield = this.add.tileSprite(0, 0, window.innerWidth, window.innerHeight, 'stars')
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(-1)
+    }
+
+    private setupMinimap = (mapSize: number, margin: number) => {
+        if (!this.minimap) {
+            this.minimap = this.cameras.add(0, 0, mapSize, mapSize).setName('mini')
+        }
+
+        const zoom = mapSize / GAME_WIDTH 
+        this.minimap.setZoom(zoom)
+        this.minimap.centerOn(GAME_WIDTH / 2, GAME_HEIGHT / 2)
+        this.minimap.setBackgroundColor(0x000000)
+        this.minimap.inputEnabled = false
+
+        if (!this.minimapBorder) {
+            this.minimapBorder = this.add.graphics().setScrollFactor(0).setDepth(2000)
+        }
+
+        this.updateMinimapLayout(mapSize, margin)
+
+        if (this.starfield) this.minimap.ignore(this.starfield)
+    }
+
+    private updateMinimapLayout = (mapSize: number, margin: number) => {
+        const x = this.scale.width - mapSize - margin
+        const y = margin
+
+        if (this.minimap) {
+            this.minimap.setPosition(x, y)
+        }
+
+        if (this.minimapBorder) {
+            this.minimapBorder.clear()
+            this.minimapBorder.lineStyle(2, 0xffffff, 0.8)
+            this.minimapBorder.strokeRect(x, y, mapSize, mapSize)
+        }
+    }
+
+    private setupControls = () => {
+        if (this.input.keyboard) {
+            this.cursors = this.input.keyboard.createCursorKeys()
+        }
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.shoot(pointer))
+    }
+
+    private setupLeaderboard = () => {
+        this.leaderboardText = this.add.text(10, 10, ' Loading Leaderboard...', {
+            fontSize: '18px',
+            fontFamily: 'Courier, monospace',
+            color: '#ffffff',
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            padding: { x: 10, y: 5 }
+        }).setScrollFactor(0).setDepth(1000)
+        
+        if (this.minimap) this.minimap.ignore(this.leaderboardText)
+    }
+
+    private createExplosion = (x: number, y: number) => {
         const explosion = this.add.particles(x, y, 'bullet', {
             speed: { min: 50, max: 150 },
             angle: { min: 0, max: 360 },
@@ -362,7 +334,7 @@ class MainScene extends Phaser.Scene {
         })
     }
 
-    private createBulletImpact(x: number, y: number) {
+    private createBulletImpact = (x: number, y: number) => {
         const sparks = this.add.particles(x, y, 'bullet', {
             speed: { min: 20, max: 100 },
             angle: { min: 0, max: 360 },
@@ -380,15 +352,146 @@ class MainScene extends Phaser.Scene {
             sparks.destroy()
         })
     }
-}
+    
+    private handleBulletHit = (bulletId: string) => {
+        const bullets = this.bullets.getChildren() as iBulletSprite[]
 
-const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
-    width: GAME_WIDTH,
-    height: GAME_HEIGHT,
-    backgroundColor: '#2d2d2d',
-    physics: { default: 'arcade' },
-    scene: MainScene
-}
+        bullets.forEach(bullet => {
+            if (bullet.bulletId === bulletId) {
+                bullet.destroy()
+            }
+        })
+    }
 
-new Phaser.Game(config)
+    private setupNetworkEvents = () => {
+        this.socket.on(GameEvents.CURRENT_PLAYERS, (players: { [id: string]: iPlayer }) => {
+            if (this.otherPlayers) this.otherPlayers.clear(true, true)
+
+            Object.keys(players).forEach((id) => {
+                if (id === this.socket.id) {
+                    this.addMainPlayer(players[id])
+                } else {
+                    this.addOtherPlayer(players[id])
+                }
+            })
+        })
+
+        this.socket.on(GameEvents.PLAYER_JOINED, (playerInfo: iPlayer) => {
+            this.addOtherPlayer(playerInfo)
+        })
+
+        this.socket.on(GameEvents.PLAYER_MOVED, (playerInfo: iPlayer) => {
+            this.otherPlayers.getChildren().forEach(obj => {
+                const otherPlayer = obj as SpaceShip
+
+                if (playerInfo.id === otherPlayer.playerId) {
+                    otherPlayer.targetX = playerInfo.x
+                    otherPlayer.targetY = playerInfo.y
+                    otherPlayer.targetRotation = playerInfo.angle
+                }
+            })
+        })
+
+        this.socket.on(GameEvents.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
+            this.handlePlayerHit(data)
+        })
+
+        this.socket.on(GameEvents.LEADERBOARD_UPDATE, (data: { username: string, high_score: number }[]) => {
+            let text = '🏆 TOP PILOTS\n\n'
+
+            data.forEach((player, index) => {
+                const name = player.username || 'Unknown'
+                const score = player.high_score || 0
+
+                const rank = `${index + 1}.`.padEnd(3)
+                text += `${rank} ${name.padEnd(20)} ${score}\n`
+            })
+            this.leaderboardText.setText(text)
+        })
+
+        this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
+            this.otherPlayers.getChildren().forEach(obj => {
+                const otherPlayer = obj as SpaceShip
+
+                if (playerId === otherPlayer.playerId) {
+                    otherPlayer.destroy()
+                }
+            })
+        })
+
+        this.socket.on(GameEvents.NEW_BULLET, (bulletData: iBullet) => {
+            if (bulletData.playerId === this.socket.id) {
+                const bullets = this.bullets.getChildren() as iBulletSprite[]
+                const localBullet = bullets.find(b => b.bulletId.startsWith('local_'))
+
+                if (localBullet) {
+                    localBullet.bulletId = bulletData.id
+                }
+
+                return
+            }
+
+            this.createBullet(bulletData)
+        })
+        
+        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
+            let deadPlayer: SpaceShip | null = null
+
+            if (data.playerId === this.socket.id && this.playerContainer) {
+                deadPlayer = this.playerContainer
+                this.cameras.main.flash(500, 255, 0, 0)
+            } else {
+                this.otherPlayers.getChildren().forEach(obj => {
+                    const otherPlayer = obj as SpaceShip
+                    if (otherPlayer.playerId === data.playerId) deadPlayer = otherPlayer
+                })
+            }
+
+            if (deadPlayer) {
+                this.createExplosion(deadPlayer.x, deadPlayer.y)
+                
+                deadPlayer.hp = PLAYER_HP
+                deadPlayer.setPosition(data.newX, data.newY)
+                deadPlayer.redrawHealthBar()
+
+                if (data.playerId !== this.socket.id) {
+                    deadPlayer.targetX = data.newX
+                    deadPlayer.targetY = data.newY
+                }
+            }
+
+            this.handleBulletHit(data.bulletId)
+        })
+    }
+    
+    private handlePlayerHit = (data: { playerId: string, hp: number, bulletId: string }) => {
+        let targetPlayer: SpaceShip | null = null
+
+        if (data.playerId === this.socket.id) {
+            targetPlayer = this.playerContainer
+        } else {
+            this.otherPlayers.getChildren().forEach(obj => {
+                const otherPlayer = obj as SpaceShip
+                if (otherPlayer.playerId === data.playerId) targetPlayer = otherPlayer
+            })
+        }
+
+        if (targetPlayer) {
+            targetPlayer.hp = data.hp
+            targetPlayer.redrawHealthBar()
+            
+            targetPlayer.ship.setTint(0xffffff) 
+
+            this.time.delayedCall(100, () => {
+                if (!targetPlayer) return
+                targetPlayer.playerId === this.socket.id
+                    ? targetPlayer.ship.clearTint()
+                    : targetPlayer.ship.setTint(0xff0000)
+            })
+            
+            this.createBulletImpact(targetPlayer.x, targetPlayer.y)
+        }
+
+        this.handleBulletHit(data.bulletId)
+    }
+}
