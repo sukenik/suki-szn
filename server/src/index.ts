@@ -1,10 +1,10 @@
+import 'dotenv/config'
 import express from 'express'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { GameEvents, iBullet, iPlayer } from '../../shared/types'
 import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
 import * as admin from 'firebase-admin'
-import 'dotenv/config'
 import { supabase } from './db'
 
 const app = express()
