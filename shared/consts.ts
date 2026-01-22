@@ -1,4 +1,28 @@
-export const GAME_WIDTH = 2000
-export const GAME_HEIGHT = 2000
-export const PLAYER_SIZE_IN_PX = 40
-export const PLAYER_HP = 100
+export const GAME_SETTINGS = {
+  TICK_RATE: 30,
+  WORLD_WIDTH: 2000,
+  WORLD_HEIGHT: 2000,
+  PLAYER_SPEED: 300,
+  PLAYER_SIZE: 40,
+  PLAYER_RADIUS: 25,
+  MAX_HEALTH: 100,
+  HEAL_AMOUNT: 20,
+  HEAL_RESPAWN_TIME: 10000,
+  GRID_SIZE: 50,
+} as const
+
+export const GAME_EVENTS = {
+    PLAYER_JOINED: 'playerJoined',
+    PLAYER_LEFT: 'playerLeft',
+    PLAYER_MOVED: 'playerMoved',
+    CURRENT_PLAYERS: 'currentPlayers',
+    PLAYER_MOVEMENT: 'playerMovement',
+    NEW_BULLET: 'newBullet',
+    PLAYER_SHOOT: 'playerShoot',
+    PLAYER_HIT: 'playerHit',
+    PLAYER_DIED: 'playerDied',
+    LEADERBOARD_UPDATE: 'leaderboardUpdate',
+    REQUEST_INITIAL_STATE: 'requestInitialState'
+} as const
+
+export type GameEventType = typeof GAME_EVENTS[keyof typeof GAME_EVENTS]

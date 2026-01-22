@@ -2,8 +2,8 @@ import 'dotenv/config'
 import express from 'express'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
-import { GameEvents, iBullet, iPlayer } from '../../shared/types'
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
+import { iBullet, iPlayer } from '../../shared/types'
+import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
 import * as admin from 'firebase-admin'
 import { supabase } from './db'
 
@@ -15,6 +15,10 @@ const io = new Server(httpServer, {
         methods: ['GET', 'POST']
     }
 })
+
+const {
+    WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, PLAYER_RADIUS
+} = GAME_SETTINGS
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT as string)
 
@@ -47,13 +51,12 @@ const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
 const bullets: iBullet[] = []
 const BULLET_DAMAGE = 10
-const PLAYER_RADIUS = PLAYER_SIZE_IN_PX / 2
 const TICK_RATE = 60
 
 const generateNewLocation = () => {
     const padding = 50
-    const spawnX = Math.floor(Math.random() * (GAME_WIDTH - padding * 2)) + padding
-    const spawnY = Math.floor(Math.random() * (GAME_HEIGHT - padding * 2)) + padding
+    const spawnX = Math.floor(Math.random() * (WORLD_WIDTH - padding * 2)) + padding
+    const spawnY = Math.floor(Math.random() * (WORLD_HEIGHT - padding * 2)) + padding
 
     return { spawnX, spawnY }
 }
@@ -66,7 +69,7 @@ const broadcastLeaderboard = async (io: any) => {
         .limit(10)
 
     if (!error) {
-        io.emit(GameEvents.LEADERBOARD_UPDATE, data)
+        io.emit(GAME_EVENTS.LEADERBOARD_UPDATE, data)
     }
 }
 
@@ -79,7 +82,7 @@ const sendMemoryLeaderboard = (io: any) => {
         .sort((a, b) => b.high_score - a.high_score)
         .slice(0, 10)
 
-    io.emit(GameEvents.LEADERBOARD_UPDATE, memoryData)
+    io.emit(GAME_EVENTS.LEADERBOARD_UPDATE, memoryData)
 }
 
 setInterval(async () => {
@@ -132,12 +135,12 @@ setInterval(async () => {
                         }
                     }
 
-                    player.hp = PLAYER_HP
+                    player.hp = MAX_HEALTH
                     const { spawnX, spawnY } = generateNewLocation()
                     player.x = spawnX
                     player.y = spawnY
 
-                    io.emit(GameEvents.PLAYER_DIED, {
+                    io.emit(GAME_EVENTS.PLAYER_DIED, {
                         playerId: id,
                         newX: player.x,
                         newY: player.y,
@@ -146,7 +149,7 @@ setInterval(async () => {
 
                     sendMemoryLeaderboard(io)
                 } else {
-                    io.emit(GameEvents.PLAYER_HIT, { 
+                    io.emit(GAME_EVENTS.PLAYER_HIT, { 
                         playerId: id, 
                         hp: player.hp,
                         bulletId: bullet.id
@@ -160,17 +163,17 @@ setInterval(async () => {
 
         if (bulletDestroyed) continue
 
-        if (bullet.x < 0 || bullet.x > GAME_WIDTH || bullet.y < 0 || bullet.y > GAME_HEIGHT) {
+        if (bullet.x < 0 || bullet.x > WORLD_WIDTH || bullet.y < 0 || bullet.y > WORLD_HEIGHT) {
             bullets.splice(i, 1)
         }
     }
 }, 1000 / TICK_RATE)
 
 io.on('connection', async (socket) => {
-    socket.on(GameEvents.REQUEST_INITIAL_STATE, async () => {
+    socket.on(GAME_EVENTS.REQUEST_INITIAL_STATE, async () => {
         console.log(`[Socket ${socket.id}] requested state. Sending ${Object.keys(players).length} players.`)
 
-        socket.emit(GameEvents.CURRENT_PLAYERS, players)
+        socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
         await broadcastLeaderboard(io)
     })
 
@@ -221,40 +224,40 @@ io.on('connection', async (socket) => {
             x: spawnX,
             y: spawnY,
             angle: 0,
-            hp: PLAYER_HP,
+            hp: MAX_HEALTH,
             name: user.username,
             kills: 0
         }
 
         console.log(`User ${user.username} authenticated and joined the game.`)
 
-        await setupGameEvents(socket)
+        await setupGAME_EVENTS(socket)
     } catch (error) {
         console.error('Authentication failed:', error)
         socket.disconnect()
     }
 })
 
-const setupGameEvents = async (socket: Socket) => {
-    socket.emit(GameEvents.CURRENT_PLAYERS, players)
-    socket.broadcast.emit(GameEvents.PLAYER_JOINED, players[socket.id])
+const setupGAME_EVENTS = async (socket: Socket) => {
+    socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
+    socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
 
     await broadcastLeaderboard(io)
 
-    socket.on(GameEvents.PLAYER_MOVEMENT, (movementData: { x: number, y: number, angle: number }) => {
+    socket.on(GAME_EVENTS.PLAYER_MOVEMENT, (movementData: { x: number, y: number, angle: number }) => {
         if (players[socket.id]) {
-            const validatedX = Math.max(0, Math.min(GAME_WIDTH, movementData.x))
-            const validatedY = Math.max(0, Math.min(GAME_HEIGHT, movementData.y))
+            const validatedX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x))
+            const validatedY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y))
 
             players[socket.id].x = validatedX
             players[socket.id].y = validatedY
             players[socket.id].angle = movementData.angle
 
-            socket.broadcast.emit(GameEvents.PLAYER_MOVED, players[socket.id])
+            socket.broadcast.emit(GAME_EVENTS.PLAYER_MOVED, players[socket.id])
         }
     })
     
-    socket.on(GameEvents.PLAYER_SHOOT, (data: { vx: number, vy: number, x: number, y: number }) => {
+    socket.on(GAME_EVENTS.PLAYER_SHOOT, (data: { vx: number, vy: number, x: number, y: number }) => {
         const player = players[socket.id]
         if (!player) return
 
@@ -278,14 +281,14 @@ const setupGameEvents = async (socket: Socket) => {
         }
 
         bullets.push(bulletData)
-        io.emit(GameEvents.NEW_BULLET, bulletData)
+        io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
     })
 
     socket.on('disconnect', () => {
         console.log(`User disconnected ${socket.id}`)
 
         delete players[socket.id]
-        io.emit(GameEvents.PLAYER_LEFT, socket.id)
+        io.emit(GAME_EVENTS.PLAYER_LEFT, socket.id)
     })
 }
 

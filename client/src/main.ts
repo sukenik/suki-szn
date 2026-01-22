@@ -1,10 +1,11 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_HP, PLAYER_SIZE_IN_PX } from '../../shared/consts'
+import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
 import type { iBullet, iPlayer } from '../../shared/types'
-import { GameEvents } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
+
+const { WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH } = GAME_SETTINGS
 
 export class MainScene extends Phaser.Scene {
     private socket!: Socket
@@ -53,7 +54,7 @@ export class MainScene extends Phaser.Scene {
 
         const attemptRequest = () => {
             if (this.socket.connected) {
-                this.socket.emit(GameEvents.REQUEST_INITIAL_STATE)
+                this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
             }
         }
 
@@ -77,8 +78,8 @@ export class MainScene extends Phaser.Scene {
         this.physics.world.enable(container)
         const body = container.body as Phaser.Physics.Arcade.Body
         body.setCollideWorldBounds(true)
-        body.setSize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
-        body.setOffset(-PLAYER_SIZE_IN_PX / 2, -PLAYER_SIZE_IN_PX / 2)
+        body.setSize(PLAYER_SIZE, PLAYER_SIZE)
+        body.setOffset(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2)
 
         this.cameras.main.startFollow(container, true, 0.1, 0.1)
         
@@ -94,8 +95,8 @@ export class MainScene extends Phaser.Scene {
 
         if (otherPlayer.body instanceof Phaser.Physics.Arcade.Body) {
             otherPlayer.body.setCollideWorldBounds(true)
-            otherPlayer.body.setSize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
-            otherPlayer.body.setOffset(-PLAYER_SIZE_IN_PX / 2, -PLAYER_SIZE_IN_PX / 2)
+            otherPlayer.body.setSize(PLAYER_SIZE, PLAYER_SIZE)
+            otherPlayer.body.setOffset(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2)
         }
 
         if (this.minimap) {
@@ -142,7 +143,7 @@ export class MainScene extends Phaser.Scene {
             this.lastSentPosition.y !== this.playerContainer.y || 
             this.lastSentPosition.angle !== this.playerContainer.ship.angle
         ) {
-            this.socket.emit(GameEvents.PLAYER_MOVEMENT, {
+            this.socket.emit(GAME_EVENTS.PLAYER_MOVEMENT, {
                 x: this.playerContainer.x,
                 y: this.playerContainer.y,
                 angle: this.playerContainer.ship.angle
@@ -208,7 +209,7 @@ export class MainScene extends Phaser.Scene {
             angle: Phaser.Math.RadToDeg(angleInRadians)
         })
 
-        this.socket.emit(GameEvents.PLAYER_SHOOT, {
+        this.socket.emit(GAME_EVENTS.PLAYER_SHOOT, {
             vx,
             vy,
             x: this.playerContainer.x,
@@ -242,7 +243,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupPhysics = () => {
-        this.physics.world.setBounds(0, 0, GAME_WIDTH, GAME_HEIGHT)
+        this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
         
         this.physics.add.overlap(this.bullets, [], (_, bulletObj) => {
             const bullet = bulletObj as iBulletSprite
@@ -265,9 +266,9 @@ export class MainScene extends Phaser.Scene {
             this.minimap = this.cameras.add(0, 0, mapSize, mapSize).setName('mini')
         }
 
-        const zoom = mapSize / GAME_WIDTH 
+        const zoom = mapSize / WORLD_WIDTH 
         this.minimap.setZoom(zoom)
-        this.minimap.centerOn(GAME_WIDTH / 2, GAME_HEIGHT / 2)
+        this.minimap.centerOn(WORLD_WIDTH / 2, WORLD_HEIGHT / 2)
         this.minimap.setBackgroundColor(0x000000)
         this.minimap.inputEnabled = false
 
@@ -364,7 +365,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupNetworkEvents = () => {
-        this.socket.on(GameEvents.CURRENT_PLAYERS, (players: { [id: string]: iPlayer }) => {
+        this.socket.on(GAME_EVENTS.CURRENT_PLAYERS, (players: { [id: string]: iPlayer }) => {
             if (this.otherPlayers) this.otherPlayers.clear(true, true)
 
             Object.keys(players).forEach((id) => {
@@ -376,11 +377,11 @@ export class MainScene extends Phaser.Scene {
             })
         })
 
-        this.socket.on(GameEvents.PLAYER_JOINED, (playerInfo: iPlayer) => {
+        this.socket.on(GAME_EVENTS.PLAYER_JOINED, (playerInfo: iPlayer) => {
             this.addOtherPlayer(playerInfo)
         })
 
-        this.socket.on(GameEvents.PLAYER_MOVED, (playerInfo: iPlayer) => {
+        this.socket.on(GAME_EVENTS.PLAYER_MOVED, (playerInfo: iPlayer) => {
             this.otherPlayers.getChildren().forEach(obj => {
                 const otherPlayer = obj as SpaceShip
 
@@ -392,11 +393,11 @@ export class MainScene extends Phaser.Scene {
             })
         })
 
-        this.socket.on(GameEvents.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
+        this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
             this.handlePlayerHit(data)
         })
 
-        this.socket.on(GameEvents.LEADERBOARD_UPDATE, (data: { username: string, high_score: number }[]) => {
+        this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: { username: string, high_score: number }[]) => {
             let text = '🏆 TOP PILOTS\n\n'
 
             data.forEach((player, index) => {
@@ -409,7 +410,7 @@ export class MainScene extends Phaser.Scene {
             this.leaderboardText.setText(text)
         })
 
-        this.socket.on(GameEvents.PLAYER_LEFT, (playerId: string) => {
+        this.socket.on(GAME_EVENTS.PLAYER_LEFT, (playerId: string) => {
             this.otherPlayers.getChildren().forEach(obj => {
                 const otherPlayer = obj as SpaceShip
 
@@ -419,7 +420,7 @@ export class MainScene extends Phaser.Scene {
             })
         })
 
-        this.socket.on(GameEvents.NEW_BULLET, (bulletData: iBullet) => {
+        this.socket.on(GAME_EVENTS.NEW_BULLET, (bulletData: iBullet) => {
             if (bulletData.playerId === this.socket.id) {
                 const bullets = this.bullets.getChildren() as iBulletSprite[]
                 const localBullet = bullets.find(b => b.bulletId.startsWith('local_'))
@@ -434,7 +435,7 @@ export class MainScene extends Phaser.Scene {
             this.createBullet(bulletData)
         })
         
-        this.socket.on(GameEvents.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
+        this.socket.on(GAME_EVENTS.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
             let deadPlayer: SpaceShip | null = null
 
             if (data.playerId === this.socket.id && this.playerContainer) {
@@ -450,7 +451,7 @@ export class MainScene extends Phaser.Scene {
             if (deadPlayer) {
                 this.createExplosion(deadPlayer.x, deadPlayer.y)
                 
-                deadPlayer.hp = PLAYER_HP
+                deadPlayer.hp = MAX_HEALTH
                 deadPlayer.setPosition(data.newX, data.newY)
                 deadPlayer.redrawHealthBar()
 
