@@ -1,5 +1,4 @@
 export const GAME_SETTINGS = {
-  // TODO: Test if Render can handle 60, if not change to 30
   TICK_RATE: 60,
   WORLD_WIDTH: 2000,
   WORLD_HEIGHT: 2000,
