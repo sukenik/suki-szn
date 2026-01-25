@@ -1,3 +1,12 @@
+export interface iPlayerInputs {
+    up: boolean
+    down: boolean
+    left: boolean
+    right: boolean
+    shoot: boolean
+    angle: number
+}
+
 export interface iPlayer {
     id: string
     firebaseId: string
@@ -7,15 +16,7 @@ export interface iPlayer {
     hp: number
     name: string
     kills: number
-}
-
-export interface PlayerInputs {
-  up: boolean
-  down: boolean
-  left: boolean
-  right: boolean
-  shoot: boolean
-  angle: number
+    lastInput?: iPlayerInputs
 }
 
 export interface iBullet {
@@ -26,4 +27,17 @@ export interface iBullet {
     vx: number
     vy: number
     angle: number
+}
+
+export interface iHealPack {
+    id: string
+    x: number
+    y: number
+    active: boolean
+}
+
+export interface iServerUpdateData {
+    players: { [id: string]: iPlayer }
+    bullets: iBullet[]
+    heals: iHealPack[]
 }

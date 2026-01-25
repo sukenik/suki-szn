@@ -2,7 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
-import { iBullet, iPlayer } from '../../shared/types'
+import { iBullet, iHealPack, iPlayer, iPlayerInputs, iServerUpdateData } from '../../shared/types'
 import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
 import * as admin from 'firebase-admin'
 import { supabase } from './db'
@@ -17,7 +17,8 @@ const io = new Server(httpServer, {
 })
 
 const {
-    WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, PLAYER_RADIUS
+    WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, PLAYER_RADIUS, TICK_RATE,
+    PLAYER_SPEED
 } = GAME_SETTINGS
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT as string)
@@ -47,18 +48,72 @@ io.use((socket, next) => {
     next()
 })
 
+const generateNewLocation = () => {
+    const padding = 50
+    const x = Math.floor(Math.random() * (WORLD_WIDTH - padding * 2)) + padding
+    const y = Math.floor(Math.random() * (WORLD_HEIGHT - padding * 2)) + padding
+
+    return { x, y }
+}
+
 const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
 const bullets: iBullet[] = []
+let healPacks: iHealPack[] = Array.from({ length: 3 }).map((_, i) => ({
+    id: `h${i}`,
+    ...generateNewLocation(),
+    active: true
+}))
 const BULLET_DAMAGE = 10
-const TICK_RATE = 60
 
-const generateNewLocation = () => {
-    const padding = 50
-    const spawnX = Math.floor(Math.random() * (WORLD_WIDTH - padding * 2)) + padding
-    const spawnY = Math.floor(Math.random() * (WORLD_HEIGHT - padding * 2)) + padding
+const updateHeals = () => {
+    healPacks.forEach(pack => {
+        if (!pack.active) return
 
-    return { spawnX, spawnY }
+        Object.values(players).forEach(player => {
+            const dist = Math.hypot(player.x - pack.x, player.y - pack.y)
+
+            if (player.hp !== MAX_HEALTH && (dist < PLAYER_RADIUS + 15)) {
+                pack.active = false
+                player.hp = Math.min(MAX_HEALTH, player.hp + 20)
+
+                setTimeout(() => {
+                    const { x, y } = generateNewLocation()
+
+                    pack.active = true
+                    pack.x = x
+                    pack.y = y
+                }, 10000)
+            }
+        })
+    })
+}
+
+const updatePlayerPhysics = () => {
+    Object.values(players).forEach((player) => {
+        const input = player.lastInput
+        if (!input) return
+
+        const moveStep = PLAYER_SPEED / TICK_RATE
+        let vx = 0
+        let vy = 0
+
+        if (input.up)    vy -= moveStep
+        if (input.down)  vy += moveStep
+        if (input.left)  vx -= moveStep
+        if (input.right) vx += moveStep
+
+        player.x += vx
+        player.y += vy
+
+        if (vx !== 0 || vy !== 0) {
+            const radians = Math.atan2(vy, vx)
+            player.angle = radians * (180 / Math.PI)
+        }
+
+        player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH))
+        player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT))
+    })
 }
 
 const broadcastLeaderboard = async (io: any) => {
@@ -86,6 +141,9 @@ const sendMemoryLeaderboard = (io: any) => {
 }
 
 setInterval(async () => {
+    updatePlayerPhysics()
+    updateHeals()
+
     for (let i = bullets.length - 1; i >= 0; i--) {
         const bullet = bullets[i]
 
@@ -136,9 +194,9 @@ setInterval(async () => {
                     }
 
                     player.hp = MAX_HEALTH
-                    const { spawnX, spawnY } = generateNewLocation()
-                    player.x = spawnX
-                    player.y = spawnY
+                    const { x, y } = generateNewLocation()
+                    player.x = x
+                    player.y = y
 
                     io.emit(GAME_EVENTS.PLAYER_DIED, {
                         playerId: id,
@@ -167,6 +225,14 @@ setInterval(async () => {
             bullets.splice(i, 1)
         }
     }
+
+    const updateData: iServerUpdateData = {
+        players,
+        bullets,
+        heals: healPacks
+    }
+    io.emit(GAME_EVENTS.SERVER_UPDATE, updateData)
+
 }, 1000 / TICK_RATE)
 
 io.on('connection', async (socket) => {
@@ -216,13 +282,10 @@ io.on('connection', async (socket) => {
         }
         (socket as any).userData = user
 
-        const { spawnX, spawnY } = generateNewLocation()
-
         players[socket.id] = {
             id: socket.id,
             firebaseId: userId,
-            x: spawnX,
-            y: spawnY,
+            ...generateNewLocation(),
             angle: 0,
             hp: MAX_HEALTH,
             name: user.username,
@@ -231,32 +294,27 @@ io.on('connection', async (socket) => {
 
         console.log(`User ${user.username} authenticated and joined the game.`)
 
-        await setupGAME_EVENTS(socket)
+        await setupGameEvents(socket)
     } catch (error) {
         console.error('Authentication failed:', error)
         socket.disconnect()
     }
 })
 
-const setupGAME_EVENTS = async (socket: Socket) => {
+const setupGameEvents = async (socket: Socket) => {
     socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
     socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
 
     await broadcastLeaderboard(io)
 
-    socket.on(GAME_EVENTS.PLAYER_MOVEMENT, (movementData: { x: number, y: number, angle: number }) => {
-        if (players[socket.id]) {
-            const validatedX = Math.max(0, Math.min(WORLD_WIDTH, movementData.x))
-            const validatedY = Math.max(0, Math.min(WORLD_HEIGHT, movementData.y))
+    socket.on(GAME_EVENTS.INPUT_UPDATE, (inputData: iPlayerInputs) => {
+        const player = players[socket.id]
 
-            players[socket.id].x = validatedX
-            players[socket.id].y = validatedY
-            players[socket.id].angle = movementData.angle
-
-            socket.broadcast.emit(GAME_EVENTS.PLAYER_MOVED, players[socket.id])
+        if (player) {
+            player.lastInput = inputData
         }
     })
-    
+
     socket.on(GAME_EVENTS.PLAYER_SHOOT, (data: { vx: number, vy: number, x: number, y: number }) => {
         const player = players[socket.id]
         if (!player) return

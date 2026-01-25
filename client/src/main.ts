@@ -1,11 +1,14 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
-import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
-import type { iBullet, iPlayer } from '../../shared/types'
+import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
+import type { iBullet, iPlayer, iServerUpdateData } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
-const { WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH } = GAME_SETTINGS
+const {
+    WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
+    TICK_RATE
+} = GAME_SETTINGS
 
 export class MainScene extends Phaser.Scene {
     private socket!: Socket
@@ -17,7 +20,7 @@ export class MainScene extends Phaser.Scene {
     private starfield!: Phaser.GameObjects.TileSprite
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
-    private lastSentPosition = { x: 0, y: 0, angle: 0 }
+    private heals!: Phaser.Physics.Arcade.Group
 
     constructor() {
         super('MainScene')
@@ -27,6 +30,7 @@ export class MainScene extends Phaser.Scene {
         this.load.image('ship', 'https://labs.phaser.io/assets/sprites/fmship.png')
         this.load.image('bullet', 'https://labs.phaser.io/assets/sprites/bullets/bullet7.png')
         this.load.image('stars', 'assets/stars.png')
+        this.load.image('heal_icon', 'https://labs.phaser.io/assets/sprites/firstaid.png');
     }
 
     create() {
@@ -114,46 +118,41 @@ export class MainScene extends Phaser.Scene {
 
         if (!this.playerContainer || !this.cursors) return
 
-        const body = this.playerContainer.body as Phaser.Physics.Arcade.Body
-        const speed = 200
+        const currentInputs = {
+            up: this.cursors.up.isDown,
+            down: this.cursors.down.isDown,
+            left: this.cursors.left.isDown,
+            right: this.cursors.right.isDown,
+            angle: Phaser.Math.RadToDeg(Phaser.Math.Angle.Between(
+                this.playerContainer.x,
+                this.playerContainer.y,
+                this.input.activePointer.x + this.cameras.main.scrollX,
+                this.input.activePointer.y + this.cameras.main.scrollY
+            )),
+            shoot: false
+        }
 
-        if (this.cursors.left.isDown) body.setVelocityX(-speed)
-        else if (this.cursors.right.isDown) body.setVelocityX(speed)
-        else body.setVelocityX(0)
+        const moveStep = PLAYER_SPEED / TICK_RATE
+        if (currentInputs.up)    this.playerContainer.y -= moveStep
+        if (currentInputs.down)  this.playerContainer.y += moveStep
+        if (currentInputs.left)  this.playerContainer.x -= moveStep
+        if (currentInputs.right) this.playerContainer.x += moveStep
 
-        if (this.cursors.up.isDown) body.setVelocityY(-speed)
-        else if (this.cursors.down.isDown) body.setVelocityY(speed)
-        else body.setVelocityY(0)
+        if (currentInputs.up || currentInputs.down || currentInputs.left || currentInputs.right) {
+            const vx = (currentInputs.right ? 1 : 0) - (currentInputs.left ? 1 : 0)
+            const vy = (currentInputs.down ? 1 : 0) - (currentInputs.up ? 1 : 0)
+            this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
+        }
 
-        const isMoving = body.velocity.x !== 0 || body.velocity.y !== 0
+        this.socket.emit(GAME_EVENTS.INPUT_UPDATE, currentInputs)
+
+        const isMoving = currentInputs.up || currentInputs.down || currentInputs.left || currentInputs.right
 
         if (isMoving) {
-            const newAngle = Math.atan2(body.velocity.y, body.velocity.x)
-            this.playerContainer.ship.setRotation(newAngle + Math.PI / 2)
-
             this.playerContainer.updateEmitter()
-
             if (!this.playerContainer.emitter.emitting) this.playerContainer.emitter.start()
         } else {
             this.playerContainer.emitter.stop()
-        }
-
-        if (
-            this.lastSentPosition.x !== this.playerContainer.x || 
-            this.lastSentPosition.y !== this.playerContainer.y || 
-            this.lastSentPosition.angle !== this.playerContainer.ship.angle
-        ) {
-            this.socket.emit(GAME_EVENTS.PLAYER_MOVEMENT, {
-                x: this.playerContainer.x,
-                y: this.playerContainer.y,
-                angle: this.playerContainer.ship.angle
-            })
-
-            this.lastSentPosition = {
-                x: this.playerContainer.x,
-                y: this.playerContainer.y,
-                angle: this.playerContainer.ship.angle
-            }
         }
 
         this.playerContainer.redrawHealthBar()
@@ -194,9 +193,8 @@ export class MainScene extends Phaser.Scene {
             pointer.y + this.cameras.main.scrollY
         )
 
-        const speed = 600
-        const vx = Math.cos(angleInRadians) * speed
-        const vy = Math.sin(angleInRadians) * speed
+        const vx = Math.cos(angleInRadians) * PLAYER_SPEED
+        const vy = Math.sin(angleInRadians) * PLAYER_SPEED
 
         const tempId = 'local_' + Date.now()
         this.createBullet({
@@ -240,6 +238,7 @@ export class MainScene extends Phaser.Scene {
     private setupGroups = () => {
         this.otherPlayers = this.add.group()
         this.bullets = this.physics.add.group()
+        this.heals = this.physics.add.group()
     }
 
     private setupPhysics = () => {
@@ -381,15 +380,53 @@ export class MainScene extends Phaser.Scene {
             this.addOtherPlayer(playerInfo)
         })
 
-        this.socket.on(GAME_EVENTS.PLAYER_MOVED, (playerInfo: iPlayer) => {
-            this.otherPlayers.getChildren().forEach(obj => {
-                const otherPlayer = obj as SpaceShip
+        this.socket.on(GAME_EVENTS.SERVER_UPDATE, (data: iServerUpdateData) => {
+            Object.keys(data.players).forEach(id => {
+                const serverPlayerData = data.players[id]
 
-                if (playerInfo.id === otherPlayer.playerId) {
-                    otherPlayer.targetX = playerInfo.x
-                    otherPlayer.targetY = playerInfo.y
-                    otherPlayer.targetRotation = playerInfo.angle
+                if (id === this.socket.id && this.playerContainer) {
+                    const dist = Phaser.Math.Distance.Between(
+                        this.playerContainer.x,
+                        this.playerContainer.y,
+                        serverPlayerData.x,
+                        serverPlayerData.y
+                    )
+                    if (dist > 10) {
+                        this.playerContainer.x = Phaser.Math.Linear(this.playerContainer.x, serverPlayerData.x, 0.1)
+                        this.playerContainer.y = Phaser.Math.Linear(this.playerContainer.y, serverPlayerData.y, 0.1)
+                    }
+
+                    this.playerContainer.hp = serverPlayerData.hp
+                    this.playerContainer.redrawHealthBar()
+                } 
+                else {
+                    let otherPlayer: SpaceShip | undefined
+                    this.otherPlayers.getChildren().forEach(obj => {
+                        const p = obj as SpaceShip
+                        if (p.playerId === id) otherPlayer = p
+                    })
+
+                    if (otherPlayer) {
+                        otherPlayer.targetX = serverPlayerData.x
+                        otherPlayer.targetY = serverPlayerData.y
+                        otherPlayer.targetRotation = (serverPlayerData.angle + 90)
+                        otherPlayer.hp = serverPlayerData.hp
+                    }
                 }
+            })
+            data.heals.forEach(healData => {
+                const healSprites = this.heals.getChildren() as Phaser.GameObjects.Sprite[]
+                let healSprite = healSprites.find(h => h.getData('healId') === healData.id)
+
+                if (!healSprite) {
+                    healSprite = this.heals.create(healData.x, healData.y, 'heal_icon') as Phaser.GameObjects.Sprite
+                    healSprite.setData('healId', healData.id)
+                    healSprite.setScale(0.8)
+                }
+
+                healSprite.setPosition(healData.x, healData.y)
+                healSprite.setActive(healData.active)
+                healSprite.setVisible(healData.active)
             })
         })
 

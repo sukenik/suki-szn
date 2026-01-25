@@ -1,5 +1,6 @@
 export const GAME_SETTINGS = {
-  TICK_RATE: 30,
+  // TODO: Test if Render can handle 60, if not change to 30
+  TICK_RATE: 60,
   WORLD_WIDTH: 2000,
   WORLD_HEIGHT: 2000,
   PLAYER_SPEED: 300,
@@ -12,17 +13,17 @@ export const GAME_SETTINGS = {
 } as const
 
 export const GAME_EVENTS = {
-    PLAYER_JOINED: 'playerJoined',
-    PLAYER_LEFT: 'playerLeft',
-    PLAYER_MOVED: 'playerMoved',
-    CURRENT_PLAYERS: 'currentPlayers',
-    PLAYER_MOVEMENT: 'playerMovement',
-    NEW_BULLET: 'newBullet',
-    PLAYER_SHOOT: 'playerShoot',
-    PLAYER_HIT: 'playerHit',
-    PLAYER_DIED: 'playerDied',
-    LEADERBOARD_UPDATE: 'leaderboardUpdate',
-    REQUEST_INITIAL_STATE: 'requestInitialState'
+  PLAYER_JOINED: 'playerJoined',
+  PLAYER_LEFT: 'playerLeft',
+  INPUT_UPDATE: 'inputUpdate',
+  SERVER_UPDATE: 'serverUpdate',
+  CURRENT_PLAYERS: 'currentPlayers',
+  NEW_BULLET: 'newBullet',
+  PLAYER_SHOOT: 'playerShoot',
+  PLAYER_HIT: 'playerHit',
+  PLAYER_DIED: 'playerDied',
+  LEADERBOARD_UPDATE: 'leaderboardUpdate',
+  REQUEST_INITIAL_STATE: 'requestInitialState'
 } as const
 
 export type GameEventType = typeof GAME_EVENTS[keyof typeof GAME_EVENTS]
