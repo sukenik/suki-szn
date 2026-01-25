@@ -1,3 +1,12 @@
+export interface iPlayerInputs {
+    up: boolean
+    down: boolean
+    left: boolean
+    right: boolean
+    shoot: boolean
+    angle: number
+}
+
 export interface iPlayer {
     id: string
     firebaseId: string
@@ -7,23 +16,8 @@ export interface iPlayer {
     hp: number
     name: string
     kills: number
+    lastInput?: iPlayerInputs
 }
-
-export const GameEvents = {
-    PLAYER_JOINED: 'playerJoined',
-    PLAYER_LEFT: 'playerLeft',
-    PLAYER_MOVED: 'playerMoved',
-    CURRENT_PLAYERS: 'currentPlayers',
-    PLAYER_MOVEMENT: 'playerMovement',
-    NEW_BULLET: 'newBullet',
-    PLAYER_SHOOT: 'playerShoot',
-    PLAYER_HIT: 'playerHit',
-    PLAYER_DIED: 'playerDied',
-    LEADERBOARD_UPDATE: 'leaderboardUpdate',
-    REQUEST_INITIAL_STATE: 'requestInitialState'
-} as const
-
-export type GameEventType = typeof GameEvents[keyof typeof GameEvents]
 
 export interface iBullet {
     id: string
@@ -33,4 +27,17 @@ export interface iBullet {
     vx: number
     vy: number
     angle: number
+}
+
+export interface iHealPack {
+    id: string
+    x: number
+    y: number
+    active: boolean
+}
+
+export interface iServerUpdateData {
+    players: { [id: string]: iPlayer }
+    bullets: iBullet[]
+    heals: iHealPack[]
 }

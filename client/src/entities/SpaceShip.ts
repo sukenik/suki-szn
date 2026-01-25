@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
-import { PLAYER_SIZE_IN_PX, PLAYER_HP } from '../../../shared/consts'
+import { GAME_SETTINGS } from '../../../shared/consts'
 import type { iPlayer } from '../../../shared/types'
+
+const { MAX_HEALTH, PLAYER_SIZE } = GAME_SETTINGS
 
 export class SpaceShip extends Phaser.GameObjects.Container {
     public hp: number
@@ -19,7 +21,7 @@ export class SpaceShip extends Phaser.GameObjects.Container {
         super(scene, x, y)
 
         this.playerId = playerInfo.id
-        this.hp = playerInfo.hp || PLAYER_HP
+        this.hp = playerInfo.hp || MAX_HEALTH
 
         this.emitter = scene.add.particles(0, 0, 'bullet', {
             speed: 100,
@@ -31,10 +33,10 @@ export class SpaceShip extends Phaser.GameObjects.Container {
         })
 
         this.ship = scene.add.sprite(0, 0, 'ship')
-        this.ship.setDisplaySize(PLAYER_SIZE_IN_PX, PLAYER_SIZE_IN_PX)
+        this.ship.setDisplaySize(PLAYER_SIZE, PLAYER_SIZE)
         if (!isMainPlayer) this.ship.setTint(0xff0000)
 
-        this.nameTag = scene.add.text(0, -(PLAYER_SIZE_IN_PX / 2 + 25), playerInfo.name || 'Unknown', {
+        this.nameTag = scene.add.text(0, -(PLAYER_SIZE / 2 + 25), playerInfo.name || 'Unknown', {
             fontSize: '14px',
             color: '#ffffff',
             backgroundColor: 'rgba(0,0,0,0.5)',
