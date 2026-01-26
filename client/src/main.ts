@@ -1,13 +1,13 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
-import type { iBullet, iPlayer, iServerUpdateData } from '../../shared/types'
+import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iPlayer, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
 const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
-    TICK_RATE
+    TICK_RATE, PLAYER_RADIUS
 } = GAME_SETTINGS
 
 export class MainScene extends Phaser.Scene {
@@ -21,6 +21,7 @@ export class MainScene extends Phaser.Scene {
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
+    private obstacles: ObstaclesType = []
 
     constructor() {
         super('MainScene')
@@ -30,7 +31,9 @@ export class MainScene extends Phaser.Scene {
         this.load.image('ship', 'https://labs.phaser.io/assets/sprites/fmship.png')
         this.load.image('bullet', 'https://labs.phaser.io/assets/sprites/bullets/bullet7.png')
         this.load.image('stars', 'assets/stars.png')
-        this.load.image('heal_icon', 'https://labs.phaser.io/assets/sprites/firstaid.png');
+        this.load.image('heal_icon', 'https://labs.phaser.io/assets/sprites/firstaid.png')
+        this.load.image('planet', 'assets/planet15.png')
+        this.load.image('ship_wall', 'assets/satellite.png')
     }
 
     create() {
@@ -133,10 +136,18 @@ export class MainScene extends Phaser.Scene {
         }
 
         const moveStep = PLAYER_SPEED / TICK_RATE
-        if (currentInputs.up)    this.playerContainer.y -= moveStep
-        if (currentInputs.down)  this.playerContainer.y += moveStep
-        if (currentInputs.left)  this.playerContainer.x -= moveStep
-        if (currentInputs.right) this.playerContainer.x += moveStep
+        let nextX = this.playerContainer.x
+        let nextY = this.playerContainer.y
+
+        if (currentInputs.up)    nextY -= moveStep
+        if (currentInputs.down)  nextY += moveStep
+        if (currentInputs.left)  nextX -= moveStep
+        if (currentInputs.right) nextX += moveStep
+        
+        if (!this.checkCollision(nextX, nextY)) {
+            this.playerContainer.x = nextX
+            this.playerContainer.y = nextY
+        }
 
         if (currentInputs.up || currentInputs.down || currentInputs.left || currentInputs.right) {
             const vx = (currentInputs.right ? 1 : 0) - (currentInputs.left ? 1 : 0)
@@ -178,6 +189,16 @@ export class MainScene extends Phaser.Scene {
             }
 
             otherPlayer.redrawHealthBar()
+        })
+
+        this.bullets.getChildren().forEach(bulletObj => {
+            const bullet = bulletObj as iBulletSprite
+
+            const isColliding = this.checkCollision(bullet.x, bullet.y)
+
+            if (isColliding) {
+                bullet.destroy()
+            }
         })
     }
 
@@ -313,6 +334,75 @@ export class MainScene extends Phaser.Scene {
         
         if (this.minimap) this.minimap.ignore(this.leaderboardText)
     }
+    
+    private setupObstacles(obstacles: ObstaclesType) {
+        obstacles.forEach(obs => {
+            if (obs.type === 'circle') {
+                const { worldX, worldY, radius } = obs as iCircleObstacle
+
+                const asteroid = this.add.sprite(worldX, worldY, 'planet')
+                asteroid.setDisplaySize(radius * 2.4, radius * 2.4)
+                asteroid.setDepth(2)
+            }
+            else if (obs.type === 'rect') {
+                const { worldX, worldY, width, height } = obs as iRectObstacle
+
+                const wall = this.add.image(worldX, worldY, 'ship_wall')
+                wall.setOrigin(0, 0)
+                wall.setDisplaySize(width, height)
+                wall.setDepth(2)
+            }
+            else if (obs.type === 'compound_rect') {
+                const { worldX, worldY } = obs as iCompoundRectObstacle
+
+                const shipImg = this.add.image(worldX, worldY, 'ship_wall')
+                shipImg.setOrigin(0, 0)
+                shipImg.setDisplaySize(150, 335) 
+                shipImg.setDepth(2)
+            }
+        })
+    }
+
+    private checkCollision = (nx: number, ny: number): boolean => {
+        for (const obs of this.obstacles) {
+            if (obs.type === 'circle') {
+                const dist = Math.hypot(nx - obs.worldX, ny - obs.worldY)
+
+                if (dist < (obs as iCircleObstacle).radius + PLAYER_RADIUS) return true
+            }
+            else if (obs.type === 'rect') {
+                const { worldX, worldY, width, height } = obs as iRectObstacle
+
+                if (
+                    nx + PLAYER_RADIUS > worldX
+                    && nx - PLAYER_RADIUS < worldX + width
+                    && ny + PLAYER_RADIUS > worldY
+                    && ny - PLAYER_RADIUS < worldY + height
+                ) {
+                    return true
+                }
+            }
+            else if (obs.type === 'compound_rect') {
+                const { worldX, worldY, rects } = obs as iCompoundRectObstacle
+
+                for (const subRect of rects) {
+                    const absX = worldX + subRect.x
+                    const absY = worldY + subRect.y
+
+                    if (
+                        nx + PLAYER_RADIUS > absX
+                        && nx - PLAYER_RADIUS < absX + subRect.w
+                        && ny + PLAYER_RADIUS > absY
+                        && ny - PLAYER_RADIUS < absY + subRect.h
+                    ) {
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
 
     private createExplosion = (x: number, y: number) => {
         const explosion = this.add.particles(x, y, 'bullet', {
@@ -414,6 +504,7 @@ export class MainScene extends Phaser.Scene {
                     }
                 }
             })
+
             data.heals.forEach(healData => {
                 const healSprites = this.heals.getChildren() as Phaser.GameObjects.Sprite[]
                 let healSprite = healSprites.find(h => h.getData('healId') === healData.id)
@@ -422,12 +513,18 @@ export class MainScene extends Phaser.Scene {
                     healSprite = this.heals.create(healData.x, healData.y, 'heal_icon') as Phaser.GameObjects.Sprite
                     healSprite.setData('healId', healData.id)
                     healSprite.setScale(0.8)
+                    healSprite.setTint(0x00ff00)
                 }
 
                 healSprite.setPosition(healData.x, healData.y)
                 healSprite.setActive(healData.active)
                 healSprite.setVisible(healData.active)
             })
+        })
+
+        this.socket.on(GAME_EVENTS.INITIAL_OBSTACLES, (obstacles: ObstaclesType) => {
+            this.obstacles = obstacles
+            this.setupObstacles(obstacles)
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {

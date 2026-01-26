@@ -2,10 +2,11 @@ import 'dotenv/config'
 import express from 'express'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
-import { iBullet, iHealPack, iPlayer, iPlayerInputs, iServerUpdateData } from '../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
 import * as admin from 'firebase-admin'
 import { supabase } from './db'
+import { GridManager } from './logic/GridManager'
 
 const app = express()
 const httpServer = createServer(app)
@@ -16,6 +17,7 @@ const io = new Server(httpServer, {
     }
 })
 
+const BULLET_DAMAGE = 10
 const {
     WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, PLAYER_RADIUS, TICK_RATE,
     PLAYER_SPEED
@@ -48,23 +50,112 @@ io.use((socket, next) => {
     next()
 })
 
+const connectionsByIP = new Map<string, number>()
+const players: { [id: string]: iPlayer } = {}
+const bullets: iBullet[] = []
+const gridManager = new GridManager(WORLD_WIDTH, WORLD_HEIGHT, 50)
+const obstacles: ObstaclesType = [
+    { type: 'circle', worldX: 1000, worldY: 1000, radius: 150 },
+    { type: 'circle', worldX: 400, worldY: 1500, radius: 100 },
+    {
+        type: 'compound_rect',
+        worldX: 1500,
+        worldY: 500,
+        rects: [
+            { x: 60, y: 0, w: 30, h: 335 },
+            { x: 0, y: 25, w: 150, h: 150 }
+        ]
+    }
+]
+obstacles.forEach(obs => {
+    if (obs.type === 'circle') {
+        gridManager.addCircleObstacle(obs as iCircleObstacle)
+    }
+    else if (obs.type === 'rect') {
+        gridManager.addRectObstacle(obs as iRectObstacle)
+    }
+    else if (obs.type === 'compound_rect') {
+        gridManager.addCompoundRectObstacle(obs as iCompoundRectObstacle)
+    }
+})
+
+const checkCollision = (nextX: number, nextY: number, safetyMargin?: number) => {
+    const margin = safetyMargin ?? 0
+
+    for (const obs of obstacles) {
+        if (obs.type === 'circle') {
+            const circle = obs as iCircleObstacle
+
+            const dist = Math.hypot(nextX - circle.worldX, nextY - circle.worldY)
+
+            if (dist < circle.radius + PLAYER_RADIUS + margin) {
+                return true
+            }
+        }
+        else if (obs.type === 'rect') {
+            const { worldX, worldY, width, height } = obs as iRectObstacle
+
+            if (
+                nextX + PLAYER_RADIUS + margin > worldX
+                && nextX - PLAYER_RADIUS - margin < worldX + width
+                && nextY + PLAYER_RADIUS + margin > worldY
+                && nextY - PLAYER_RADIUS - margin < worldY + height
+            ) {
+                return true
+            }
+        }
+        else if (obs.type === 'compound_rect') {
+            const { worldX, worldY, rects } = obs as iCompoundRectObstacle
+
+            for (const subRect of rects) {
+                const absX = worldX + subRect.x
+                const absY = worldY + subRect.y
+
+                if (
+                    nextX + PLAYER_RADIUS + margin > absX
+                    && nextX - PLAYER_RADIUS - margin < absX + subRect.w
+                    && nextY + PLAYER_RADIUS + margin > absY
+                    && nextY - PLAYER_RADIUS - margin < absY + subRect.h
+                ) {
+                    return true
+                }
+            }
+        }
+    }
+
+    return false
+}
+
 const generateNewLocation = () => {
-    const padding = 50
-    const x = Math.floor(Math.random() * (WORLD_WIDTH - padding * 2)) + padding
-    const y = Math.floor(Math.random() * (WORLD_HEIGHT - padding * 2)) + padding
+    const padding = 100
+    const safetyMargin = 20
+    let x = padding, y = padding
+    let isValid = false
+    let attempts = 0
+
+    while (!isValid && attempts < 100) {
+        x = Math.floor(Math.random() * (WORLD_WIDTH - padding * 2)) + padding
+        y = Math.floor(Math.random() * (WORLD_HEIGHT - padding * 2)) + padding
+
+        isValid = true
+
+        const isColliding = checkCollision(x, y, safetyMargin)
+
+        if (isColliding) {
+            isValid = false
+        }
+
+        attempts++
+    }
 
     return { x, y }
 }
 
-const connectionsByIP = new Map<string, number>()
-const players: { [id: string]: iPlayer } = {}
-const bullets: iBullet[] = []
 let healPacks: iHealPack[] = Array.from({ length: 3 }).map((_, i) => ({
     id: `h${i}`,
     ...generateNewLocation(),
     active: true
 }))
-const BULLET_DAMAGE = 10
 
 const updateHeals = () => {
     healPacks.forEach(pack => {
@@ -95,24 +186,20 @@ const updatePlayerPhysics = () => {
         if (!input) return
 
         const moveStep = PLAYER_SPEED / TICK_RATE
-        let vx = 0
-        let vy = 0
+        let nextX = player.x
+        let nextY = player.y
 
-        if (input.up)    vy -= moveStep
-        if (input.down)  vy += moveStep
-        if (input.left)  vx -= moveStep
-        if (input.right) vx += moveStep
+        if (input.up)    nextY -= moveStep
+        if (input.down)  nextY += moveStep
+        if (input.left)  nextX -= moveStep
+        if (input.right) nextX += moveStep
 
-        player.x += vx
-        player.y += vy
+        const isColliding = checkCollision(nextX, nextY)
 
-        if (vx !== 0 || vy !== 0) {
-            const radians = Math.atan2(vy, vx)
-            player.angle = radians * (180 / Math.PI)
+        if (!isColliding) {
+            player.x = nextX
+            player.y = nextY
         }
-
-        player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH))
-        player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT))
     })
 }
 
@@ -151,6 +238,14 @@ setInterval(async () => {
 
         bullet.x += bullet.vx / TICK_RATE
         bullet.y += bullet.vy / TICK_RATE
+
+        const gridPos = gridManager.worldToGrid(bullet.x, bullet.y)
+        const node = gridManager.getNode(gridPos.x, gridPos.y)
+
+        if (node && !node.isWalkable) {
+            bullets.splice(i, 1)
+            continue
+        }
 
         let bulletDestroyed = false
 
@@ -229,7 +324,8 @@ setInterval(async () => {
     const updateData: iServerUpdateData = {
         players,
         bullets,
-        heals: healPacks
+        heals: healPacks,
+        obstacles
     }
     io.emit(GAME_EVENTS.SERVER_UPDATE, updateData)
 
@@ -240,6 +336,7 @@ io.on('connection', async (socket) => {
         console.log(`[Socket ${socket.id}] requested state. Sending ${Object.keys(players).length} players.`)
 
         socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
+        socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
         await broadcastLeaderboard(io)
     })
 

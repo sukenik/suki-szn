@@ -40,4 +40,31 @@ export interface iServerUpdateData {
     players: { [id: string]: iPlayer }
     bullets: iBullet[]
     heals: iHealPack[]
+    obstacles: ObstaclesType
 }
+
+interface iBaseObstacle {
+    type: 'circle' | 'rect' | 'compound_rect'
+    worldX: number
+    worldY: number
+}
+
+export interface iRectObstacle extends iBaseObstacle {
+    width: number
+    height: number
+}
+
+export interface iCircleObstacle extends iBaseObstacle {
+    radius: number
+}
+
+export interface iCompoundRectObstacle extends iBaseObstacle {
+    rects: {
+        x: number
+        y: number
+        w: number
+        h: number
+    }[]
+}
+
+export type ObstaclesType = Array<iCircleObstacle | iRectObstacle | iCompoundRectObstacle>
