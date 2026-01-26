@@ -1,4 +1,4 @@
-import { iCircleObstacle, iCompoundRectObstacle, iRectObstacle } from "../../../shared/types"
+import { iCircleObstacle, iCompoundRectObstacle, iRectObstacle } from '../../../shared/types'
 
 export interface iGridNode {
     x: number
