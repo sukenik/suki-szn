@@ -185,7 +185,10 @@ const updatePlayerPhysics = () => {
         const input = player.lastInput
         if (!input) return
 
+        player.angle = input.angle
+
         const moveStep = PLAYER_SPEED / TICK_RATE
+
         let nextX = player.x
         let nextY = player.y
 

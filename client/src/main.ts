@@ -121,17 +121,22 @@ export class MainScene extends Phaser.Scene {
 
         if (!this.playerContainer || !this.cursors) return
 
+        const vx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0)
+        const vy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0)
+        
+        let movementAngle = this.playerContainer.ship.angle
+
+        if (vx !== 0 || vy !== 0) {
+            movementAngle = (Math.atan2(vy, vx) * (180 / Math.PI))
+            this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
+        }
+
         const currentInputs = {
             up: this.cursors.up.isDown,
             down: this.cursors.down.isDown,
             left: this.cursors.left.isDown,
             right: this.cursors.right.isDown,
-            angle: Phaser.Math.RadToDeg(Phaser.Math.Angle.Between(
-                this.playerContainer.x,
-                this.playerContainer.y,
-                this.input.activePointer.x + this.cameras.main.scrollX,
-                this.input.activePointer.y + this.cameras.main.scrollY
-            )),
+            angle: movementAngle,
             shoot: false
         }
 
@@ -147,12 +152,6 @@ export class MainScene extends Phaser.Scene {
         if (!this.checkCollision(nextX, nextY)) {
             this.playerContainer.x = nextX
             this.playerContainer.y = nextY
-        }
-
-        if (currentInputs.up || currentInputs.down || currentInputs.left || currentInputs.right) {
-            const vx = (currentInputs.right ? 1 : 0) - (currentInputs.left ? 1 : 0)
-            const vy = (currentInputs.down ? 1 : 0) - (currentInputs.up ? 1 : 0)
-            this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
         }
 
         this.socket.emit(GAME_EVENTS.INPUT_UPDATE, currentInputs)
@@ -175,8 +174,15 @@ export class MainScene extends Phaser.Scene {
                 otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
                 otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
 
-                const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation || 0)
-                otherPlayer.ship.rotation = Phaser.Math.Angle.RotateTo(otherPlayer.ship.rotation, targetRad, 0.1)
+                if (otherPlayer.targetRotation !== undefined) {
+                    const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
+                    
+                    otherPlayer.ship.rotation = Phaser.Math.Angle.RotateTo(
+                        otherPlayer.ship.rotation, 
+                        targetRad, 
+                        0.15
+                    )
+                }
 
                 const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
                 
