@@ -22,7 +22,8 @@ export const GAME_EVENTS = {
   PLAYER_HIT: 'playerHit',
   PLAYER_DIED: 'playerDied',
   LEADERBOARD_UPDATE: 'leaderboardUpdate',
-  REQUEST_INITIAL_STATE: 'requestInitialState'
+  REQUEST_INITIAL_STATE: 'requestInitialState',
+  INITIAL_OBSTACLES: 'initialObstacles',
 } as const
 
 export type GameEventType = typeof GAME_EVENTS[keyof typeof GAME_EVENTS]
