@@ -127,7 +127,7 @@ export class MainScene extends Phaser.Scene {
         let movementAngle = this.playerContainer.ship.angle
 
         if (vx !== 0 || vy !== 0) {
-            movementAngle = (Math.atan2(vy, vx) * (180 / Math.PI))
+            movementAngle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
             this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
         }
 
@@ -505,7 +505,7 @@ export class MainScene extends Phaser.Scene {
                     if (otherPlayer) {
                         otherPlayer.targetX = serverPlayerData.x
                         otherPlayer.targetY = serverPlayerData.y
-                        otherPlayer.targetRotation = (serverPlayerData.angle + 90)
+                        otherPlayer.targetRotation = serverPlayerData.angle
                         otherPlayer.hp = serverPlayerData.hp
                     }
                 }
