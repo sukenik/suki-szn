@@ -203,7 +203,7 @@ const updateHeals = () => {
 const updatePlayerPhysics = () => {
     Object.values(players).forEach((player) => {
         const input = player.lastInput
-        if (!input) return
+        if (!input || (player as Bot).isBot) return
 
         player.angle = input.angle
 
@@ -253,7 +253,17 @@ const sendMemoryLeaderboard = (io: any) => {
 setInterval(async () => {
     bots.forEach(bot => {
         bot.update(players)
-        players[bot.id] = bot
+        players[bot.id] = {
+            id: bot.id,
+            x: bot.x,
+            y: bot.y,
+            angle: bot.angle,
+            hp: bot.hp,
+            name: bot.name,
+            kills: bot.kills,
+            firebaseId: bot.firebaseId,
+            isBot: true
+        } as Bot
     })
 
     updatePlayerPhysics()
