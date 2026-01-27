@@ -1,11 +1,13 @@
 import 'dotenv/config'
 import express from 'express'
+import * as admin from 'firebase-admin'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
+import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
 import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
-import { GAME_SETTINGS, GAME_EVENTS } from '../../shared/consts'
-import * as admin from 'firebase-admin'
 import { supabase } from './db'
+import { AStarPathfinder } from './logic/AStarPathfinder'
+import { Bot } from './logic/Bot'
 import { GridManager } from './logic/GridManager'
 
 const app = express()
@@ -52,8 +54,10 @@ io.use((socket, next) => {
 
 const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
+const bots: Bot[] = []
 const bullets: iBullet[] = []
 const gridManager = new GridManager(WORLD_WIDTH, WORLD_HEIGHT, 50)
+const pathfinder = new AStarPathfinder(gridManager)
 const obstacles: ObstaclesType = [
     { type: 'circle', worldX: 1000, worldY: 1000, radius: 150 },
     { type: 'circle', worldX: 400, worldY: 1500, radius: 100 },
@@ -157,6 +161,22 @@ let healPacks: iHealPack[] = Array.from({ length: 3 }).map((_, i) => ({
     active: true
 }))
 
+const spawnBots = (count: number) => {
+    for (let i = 0; i < count; i++) {
+        const { x, y } = generateNewLocation()
+
+        const id = `bot-${Math.random().toString(36).substr(2, 5)}`
+        const bot = new Bot(
+            id, x, y, `SuperTrooper_${i}`, pathfinder, gridManager
+        )
+
+        bots.push(bot)
+    }
+}
+
+// TODO: Change
+spawnBots(3)
+
 const updateHeals = () => {
     healPacks.forEach(pack => {
         if (!pack.active) return
@@ -231,6 +251,11 @@ const sendMemoryLeaderboard = (io: any) => {
 }
 
 setInterval(async () => {
+    bots.forEach(bot => {
+        bot.update(players)
+        players[bot.id] = bot
+    })
+
     updatePlayerPhysics()
     updateHeals()
 
