@@ -105,4 +105,25 @@ export class GridManager {
             }
         })
     }
+
+    public hasLineOfSight(startX: number, startY: number, endX: number, endY: number): boolean {
+        const dist = Math.hypot(endX - startX, endY - startY)
+        const stepSize = this.cellSize / 2
+        const steps = dist / stepSize
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps
+            const checkX = startX + (endX - startX) * t
+            const checkY = startY + (endY - startY) * t
+
+            const gridPos = this.worldToGrid(checkX, checkY)
+            const node = this.getNode(gridPos.x, gridPos.y)
+
+            if (!node || !node.isWalkable) {
+                return false
+            }
+        }
+
+        return true
+    }
 }
