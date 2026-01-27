@@ -6,7 +6,7 @@ import { Server, Socket } from 'socket.io'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
 import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { supabase } from './db'
-import { AStarPathfinder } from './logic/AStarPathFinder'
+import { AStarPathfinder } from './logic/AStarPathfinder'
 import { Bot } from './logic/Bot'
 import { GridManager } from './logic/GridManager'
 

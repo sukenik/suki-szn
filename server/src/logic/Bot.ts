@@ -1,6 +1,6 @@
 import { iPlayer } from '../../../shared/types'
 import { GAME_SETTINGS } from '../../../shared/consts'
-import { AStarPathfinder } from './AStarPathFinder'
+import { AStarPathfinder } from './AStarPathfinder'
 import { GridManager, iGridNode } from './GridManager'
 
 const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH } = GAME_SETTINGS
