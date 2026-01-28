@@ -7,8 +7,11 @@ import type { iBulletSprite } from './entities/types'
 
 const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
-    TICK_RATE, PLAYER_RADIUS
+    TICK_RATE, PLAYER_RADIUS, BULLET_SPEED
 } = GAME_SETTINGS
+
+const MAP_SIZE = 200
+const MAP_MARGIN = 20
 
 export class MainScene extends Phaser.Scene {
     private socket!: Socket
@@ -22,6 +25,8 @@ export class MainScene extends Phaser.Scene {
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
     private obstacles: ObstaclesType = []
+    private adminAddBtn?: Phaser.GameObjects.Text
+    private adminRemoveBtn?: Phaser.GameObjects.Text
 
     constructor() {
         super('MainScene')
@@ -39,9 +44,6 @@ export class MainScene extends Phaser.Scene {
     create() {
         this.socket = this.game.registry.get('socket')
 
-        const MAP_SIZE = 200
-        const MAP_MARGIN = 20
-
         this.setupGroups()
         this.setupPhysics()
         this.setupBackground()
@@ -55,13 +57,17 @@ export class MainScene extends Phaser.Scene {
                 this.starfield.setSize(this.scale.width, this.scale.height)
             }
             this.updateMinimapLayout(MAP_SIZE, MAP_MARGIN)
-        })
 
-        this.socket = this.game.registry.get('socket')
+            if (this.adminAddBtn && this.adminRemoveBtn) {
+                this.adminAddBtn.setX(this.scale.width - 200)
+                this.adminRemoveBtn.setX(this.scale.width - 200)
+            }
+        })
 
         const attemptRequest = () => {
             if (this.socket.connected) {
                 this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
+                this.socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
             }
         }
 
@@ -220,8 +226,8 @@ export class MainScene extends Phaser.Scene {
             pointer.y + this.cameras.main.scrollY
         )
 
-        const vx = Math.cos(angleInRadians) * PLAYER_SPEED
-        const vy = Math.sin(angleInRadians) * PLAYER_SPEED
+        const vx = Math.cos(angleInRadians) * BULLET_SPEED
+        const vy = Math.sin(angleInRadians) * BULLET_SPEED
 
         const tempId = 'local_' + Date.now()
         this.createBullet({
@@ -305,6 +311,51 @@ export class MainScene extends Phaser.Scene {
         this.updateMinimapLayout(mapSize, margin)
 
         if (this.starfield) this.minimap.ignore(this.starfield)
+    }
+
+    private showAdminUI = (mapSize: number, margin: number) => {
+        const startX = this.scale.width - 200
+        const startY = mapSize + margin + 20
+
+        this.adminAddBtn = this.add.text(startX, startY, ' [+] ADD BOT ', { 
+            fontSize: '18px',
+            fontFamily: 'Arial',
+            color: '#00ff00',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            padding: { x: 8, y: 5 }
+        })
+        .setInteractive({ useHandCursor: true })
+        .setScrollFactor(0)
+        .setDepth(9999)
+
+        this.adminRemoveBtn = this.add.text(startX, startY + 35, ' [-] REMOVE BOT ', { 
+            fontSize: '18px',
+            fontFamily: 'Arial',
+            color: '#ff0000',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            padding: { x: 8, y: 5 }
+        })
+        .setInteractive({ useHandCursor: true })
+        .setScrollFactor(0)
+        .setDepth(9999);
+
+        [this.adminAddBtn, this.adminRemoveBtn].forEach(btn => {
+            btn.on('pointerover', () => btn.setStyle({ fill: '#ffffff' }))
+            btn.on('pointerout', () => btn.setStyle({ fill: btn === this.adminAddBtn ? '#00ff00' : '#ff0000' }))
+        })
+
+        this.adminAddBtn.on('pointerdown', (event: Phaser.Types.Input.EventData) => {
+            this.socket.emit(GAME_EVENTS.ADMIN_ADD_BOT)
+            event.stopPropagation()
+        })
+        this.adminRemoveBtn.on('pointerdown', (event: Phaser.Types.Input.EventData) => {
+            this.socket.emit(GAME_EVENTS.ADMIN_REMOVE_BOT)
+            event.stopPropagation()
+        })
+
+        if (this.minimap) {
+            this.minimap.ignore([this.adminAddBtn, this.adminRemoveBtn])
+        }
     }
 
     private updateMinimapLayout = (mapSize: number, margin: number) => {
@@ -502,12 +553,15 @@ export class MainScene extends Phaser.Scene {
                         if (p.playerId === id) otherPlayer = p
                     })
 
-                    if (otherPlayer) {
-                        otherPlayer.targetX = serverPlayerData.x
-                        otherPlayer.targetY = serverPlayerData.y
-                        otherPlayer.targetRotation = serverPlayerData.angle
-                        otherPlayer.hp = serverPlayerData.hp
+                    if (!otherPlayer) {
+                        this.addOtherPlayer(serverPlayerData)
+                        return
                     }
+
+                    otherPlayer.targetX = serverPlayerData.x
+                    otherPlayer.targetY = serverPlayerData.y
+                    otherPlayer.targetRotation = serverPlayerData.angle
+                    otherPlayer.hp = serverPlayerData.hp
                 }
             })
 
@@ -531,6 +585,12 @@ export class MainScene extends Phaser.Scene {
         this.socket.on(GAME_EVENTS.INITIAL_OBSTACLES, (obstacles: ObstaclesType) => {
             this.obstacles = obstacles
             this.setupObstacles(obstacles)
+        })
+
+        this.socket.on(GAME_EVENTS.IS_ADMIN, (data: { isAdmin: boolean }) => {
+            if (data.isAdmin) {
+                this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+            }
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {

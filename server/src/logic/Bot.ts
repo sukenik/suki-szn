@@ -1,9 +1,17 @@
-import { iPlayer } from '../../../shared/types'
 import { GAME_SETTINGS } from '../../../shared/consts'
+import { iBullet, iHealPack, iPlayer } from '../../../shared/types'
 import { AStarPathfinder } from './AStarPathfinder'
 import { GridManager, iGridNode } from './GridManager'
 
-const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH } = GAME_SETTINGS
+enum BotState {
+    CHASE,
+    ATTACK,
+    EVADE
+}
+
+type ShootCallback = (bulletData: iBullet) => void
+
+const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED } = GAME_SETTINGS
 const OFFSET = 90
 
 export class Bot implements iPlayer {
@@ -21,10 +29,14 @@ export class Bot implements iPlayer {
     private currentPath: iGridNode[] = []
     private pathfinder: AStarPathfinder
     private gridManager: GridManager
+    private state: BotState = BotState.CHASE
+    private onShoot: ShootCallback
+    private lastShotTime: number = 0
+    private readonly SHOOT_COOLDOWN = 1000
 
     constructor(
         id: string, x: number, y: number, name: string, pathfinder: AStarPathfinder,
-        gridManager: GridManager
+        gridManager: GridManager, onShoot: ShootCallback
     ) {
         this.id = id
         this.x = x
@@ -32,25 +44,40 @@ export class Bot implements iPlayer {
         this.name = name
         this.pathfinder = pathfinder
         this.gridManager = gridManager
+        this.onShoot = onShoot
     }
 
-    public update(allPlayers: { [id: string]: iPlayer }) {
+    public update(allPlayers: { [id: string]: iPlayer }, healPacks: iHealPack[]) {
         const target = this.findClosestTarget(allPlayers)
+        const allBots = Object.values(allPlayers).filter(
+            player => (player as Bot).isBot
+        ) as Bot[]
 
-        if (target) {
-            const distToTarget = Math.hypot(this.x - target.x, this.y - target.y)
+        this.evaluateState(target)
 
-            if (distToTarget < 60) {
-                this.currentPath = []
-                this.lookAt(target.x, target.y)
-                return
-            }
+        switch (this.state) {
+            case BotState.CHASE:
+                if (target) {
+                    this.handleNavigation(target)
+                    this.move(target.x, target.y, allBots)
+                }
+                break
+            case BotState.ATTACK:
+                if (target) {
+                    this.lookAt(target.x, target.y)
 
-            this.handleNavigation(target)
-            this.move(target)
-        }
-        else {
-            this.currentPath = []
+                    const sep = this.applySeparation(allBots, 0, 0)
+                    this.x += sep.x
+                    this.y += sep.y
+
+                    if (this.canShootSafely(allBots)) {
+                        this.shoot()
+                    }
+                }
+                break
+            case BotState.EVADE:
+                this.doEvade(healPacks, allBots, target)
+                break
         }
     }
 
@@ -90,15 +117,10 @@ export class Bot implements iPlayer {
         return dist > 100
     }
 
-    private move(target: iPlayer) {
-        const hasLOS = this.gridManager.hasLineOfSight(this.x, this.y, target.x, target.y)
-
-        let targetX: number
-        let targetY: number
+    private move(targetX: number, targetY: number, allBots: Bot[]) {
+        const hasLOS = this.gridManager.hasLineOfSight(this.x, this.y, targetX, targetY)
 
         if (hasLOS) {
-            targetX = target.x
-            targetY = target.y
             this.currentPath = []
         }
         else {
@@ -116,16 +138,20 @@ export class Bot implements iPlayer {
 
         const dx = targetX - this.x
         const dy = targetY - this.y
-
         const angleRad = Math.atan2(dy, dx)
-    
-        let angleDeg = angleRad * (180 / Math.PI)
-
-        this.angle = angleDeg + OFFSET
-
         const moveStep = PLAYER_SPEED / TICK_RATE
-        this.x += Math.cos(angleRad) * moveStep
-        this.y += Math.sin(angleRad) * moveStep
+
+        let vx = Math.cos(angleRad) * moveStep
+        let vy = Math.sin(angleRad) * moveStep
+
+        const separatedVelocity = this.applySeparation(allBots, vx, vy)
+
+        const finalAngleRad = Math.atan2(separatedVelocity.y, separatedVelocity.x)
+
+        this.angle = (finalAngleRad * (180 / Math.PI)) + OFFSET
+
+        this.x += separatedVelocity.x
+        this.y += separatedVelocity.y
     }
 
     private lookAt(targetX: number, targetY: number) {
@@ -134,5 +160,130 @@ export class Bot implements iPlayer {
         
         const angleRad = Math.atan2(dy, dx)
         this.angle = (angleRad * (180 / Math.PI)) + OFFSET
+    }
+
+    private evaluateState(target: iPlayer | null) {
+        if (this.hp < GAME_SETTINGS.MAX_HEALTH * 0.3) {
+            this.state = BotState.EVADE
+            return
+        }
+
+        if (!target) {
+            this.state = BotState.CHASE
+            return
+        }
+
+        const dist = Math.hypot(this.x - target.x, this.y - target.y)
+        const canSee = this.gridManager.hasLineOfSight(this.x, this.y, target.x, target.y)
+
+        if (dist < 400 && canSee) {
+            this.state = BotState.ATTACK
+        }
+        else {
+            this.state = BotState.CHASE
+        }
+    }
+
+    private shoot() {
+        const now = Date.now()
+        if (now - this.lastShotTime < this.SHOOT_COOLDOWN) return
+
+        const shootAngle = (this.angle - OFFSET) * (Math.PI / 180)
+
+        const bulletData: iBullet = {
+            id: `bullet-bot-${Math.random().toString(36).substr(2, 5)}`,
+            playerId: this.id,
+            x: this.x,
+            y: this.y,
+            vx: Math.cos(shootAngle) * BULLET_SPEED,
+            vy: Math.sin(shootAngle) * BULLET_SPEED,
+            angle: this.angle - OFFSET
+        }
+
+        this.onShoot(bulletData)
+        this.lastShotTime = now
+    }
+
+    private applySeparation(allBots: Bot[], vx: number, vy: number) {
+        const SEPARATION_DISTANCE = 100
+        let pushX = 0
+        let pushY = 0
+
+        allBots.forEach(other => {
+            if (other.id === this.id) return
+
+            const dist = Math.hypot(this.x - other.x, this.y - other.y)
+
+            if (dist < SEPARATION_DISTANCE && dist > 0) {
+                const force = (SEPARATION_DISTANCE - dist) / SEPARATION_DISTANCE
+
+                pushX += (this.x - other.x) / dist * force * 2
+                pushY += (this.y - other.y) / dist * force * 2
+            }
+        })
+
+        return {
+            x: vx + pushX,
+            y: vy + pushY
+        }
+    }
+
+    private canShootSafely(allBots: Bot[]): boolean {
+        const shootAngleRad = (this.angle - OFFSET) * (Math.PI / 180)
+        
+        for (const other of allBots) {
+            if (other.id === this.id) continue
+
+            const dx = other.x - this.x
+            const dy = other.y - this.y
+            const dist = Math.hypot(dx, dy)
+
+            if (dist < 400) {
+                const angleToOther = Math.atan2(dy, dx)
+            
+                let diff = Math.abs(shootAngleRad - angleToOther)
+                if (diff > Math.PI) diff = Math.PI * 2 - diff
+
+                if (diff < 0.25) { 
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null) {
+        const activeHeals = healPacks.filter(h => h.active)
+
+        if (activeHeals.length === 0) {
+            if (target) {
+                const dx = this.x - target.x
+                const dy = this.y - target.y
+                const angleToRun = Math.atan2(dy, dx)
+
+                const x = Math.max(0, Math.min(GAME_SETTINGS.WORLD_WIDTH, this.x + Math.cos(angleToRun) * 500))
+                const y = Math.max(0, Math.min(GAME_SETTINGS.WORLD_HEIGHT, this.y + Math.sin(angleToRun) * 500))
+
+                this.move(x, y, allBots)
+            }
+
+            return
+        }
+
+        const closestHeal = activeHeals.reduce((prev, curr) => {
+            const distPrev = Math.hypot(this.x - prev.x, this.y - prev.y)
+            const distCurr = Math.hypot(this.x - curr.x, this.y - curr.y)
+            return distCurr < distPrev ? curr : prev
+        })
+
+        const now = Date.now()
+
+        if (now - this.lastPathCalc > 500) {
+            this.currentPath = this.pathfinder.findPath(this.x, this.y, closestHeal.x, closestHeal.y)
+            this.lastPathCalc = now
+        }
+
+        this.move(closestHeal.x, closestHeal.y, allBots)
     }
 }

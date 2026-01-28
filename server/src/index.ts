@@ -166,16 +166,23 @@ const spawnBots = (count: number) => {
         const { x, y } = generateNewLocation()
 
         const id = `bot-${Math.random().toString(36).substr(2, 5)}`
+        const botNamesString = process.env.BOT_NAMES || ''
+        const botNames = botNamesString.split(', ')
+        
+        const randomIndex = Math.floor(Math.random() * botNames.length)
+        const name = botNames[randomIndex]
+
         const bot = new Bot(
-            id, x, y, `SuperTrooper_${i}`, pathfinder, gridManager
+            id, x, y, name, pathfinder, gridManager,
+            (bulletData) => {
+                bullets.push(bulletData)
+                io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
+            }
         )
 
         bots.push(bot)
     }
 }
-
-// TODO: Change
-spawnBots(3)
 
 const updateHeals = () => {
     healPacks.forEach(pack => {
@@ -187,6 +194,12 @@ const updateHeals = () => {
             if (player.hp !== MAX_HEALTH && (dist < PLAYER_RADIUS + 15)) {
                 pack.active = false
                 player.hp = Math.min(MAX_HEALTH, player.hp + 20)
+
+                const bot = bots.find(({ id }) => player.id === id)
+
+                if (bot) {
+                    bot.hp = Math.min(MAX_HEALTH, player.hp + 20)
+                }
 
                 setTimeout(() => {
                     const { x, y } = generateNewLocation()
@@ -238,21 +251,34 @@ const broadcastLeaderboard = async (io: any) => {
     }
 }
 
-const sendMemoryLeaderboard = (io: any) => {
-    const memoryData = Object.values(players)
-        .map(p => ({
-            username: p.name,
-            high_score: p.kills
-        }))
-        .sort((a, b) => b.high_score - a.high_score)
-        .slice(0, 10)
+const respawnPlayer = (player: iPlayer, id: string, bulletIdToDelete: string) => {
+    const { x, y } = generateNewLocation()
+    player.x = x
+    player.y = y
+    player.hp = MAX_HEALTH
 
-    io.emit(GAME_EVENTS.LEADERBOARD_UPDATE, memoryData)
+    if ((player as Bot).isBot) {
+        const actualBot = bots.find(b => b.id === id)
+
+        if (actualBot) {
+            actualBot.x = x
+            actualBot.y = y
+            actualBot.hp = MAX_HEALTH
+        }
+    }
+
+    io.emit(GAME_EVENTS.PLAYER_DIED, {
+        playerId: id,
+        newX: x,
+        newY: y,
+        bulletId: bulletIdToDelete
+    })
 }
 
 setInterval(async () => {
     bots.forEach(bot => {
-        bot.update(players)
+        bot.update(players, healPacks)
+
         players[bot.id] = {
             id: bot.id,
             x: bot.x,
@@ -295,51 +321,47 @@ setInterval(async () => {
             const dist = Math.hypot(bullet.x - player.x, bullet.y - player.y)
             
             if (dist < PLAYER_RADIUS) {
+                if ((player as Bot).isBot) {
+                    const bot = bots.find(b => b.id === id)
+
+                    if (bot) {
+                        bot.hp -= BULLET_DAMAGE
+                    }
+                }
+
                 player.hp -= BULLET_DAMAGE
-                const bulletIdToDelete = bullet.id
 
                 if (player.hp <= 0) {
                     const killerId = bullet.playerId
+                    const killer = players[killerId]
 
-                    if (players[killerId]) {
-                        const killer = players[killerId]
+                    const isKillerBot = (killer as Bot).isBot
+                    const isVictimBot = (player as Bot).isBot
 
-                        if (killer) {
-                            killer.kills += 1
-    
-                            supabase
-                                .from('users')
-                                .select('high_score')
-                                .eq('firebase_id', killer.firebaseId)
-                                .single()
-                                .then(({ data: dbUser }) => {
-                                    if (dbUser && killer.kills > dbUser.high_score) {
-                                        return supabase
-                                            .from('users')
-                                            .update({ high_score: killer.kills })
-                                            .eq('firebase_id', killer.firebaseId)
-                                    }
-                                })
-                                .then(() => {
-                                    broadcastLeaderboard(io)
-                                })
-                        }
+                    if (!isVictimBot && !isKillerBot) {
+                        killer.kills += 1
+
+                        supabase
+                            .from('users')
+                            .select('high_score')
+                            .eq('firebase_id', killer.firebaseId)
+                            .single()
+                            .then(({ data: dbUser }) => {
+                                if (dbUser && killer.kills > dbUser.high_score) {
+                                    return supabase
+                                        .from('users')
+                                        .update({ high_score: killer.kills })
+                                        .eq('firebase_id', killer.firebaseId)
+                                }
+                            })
+                            .then(() => {
+                                broadcastLeaderboard(io)
+                            })
                     }
 
-                    player.hp = MAX_HEALTH
-                    const { x, y } = generateNewLocation()
-                    player.x = x
-                    player.y = y
-
-                    io.emit(GAME_EVENTS.PLAYER_DIED, {
-                        playerId: id,
-                        newX: player.x,
-                        newY: player.y,
-                        bulletId: bulletIdToDelete
-                    })
-
-                    sendMemoryLeaderboard(io)
-                } else {
+                    respawnPlayer(player, id, bullet.id)
+                }
+                else {
                     io.emit(GAME_EVENTS.PLAYER_HIT, { 
                         playerId: id, 
                         hp: player.hp,
@@ -415,6 +437,7 @@ io.on('connection', async (socket) => {
 
             console.log('New user created in DB:', user.username)
         }
+
         (socket as any).userData = user
 
         players[socket.id] = {
@@ -441,6 +464,13 @@ const setupGameEvents = async (socket: Socket) => {
     socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
 
     await broadcastLeaderboard(io)
+
+    socket.on(GAME_EVENTS.REQUEST_IS_ADMIN, async () => {
+        const player = players[socket.id]
+        const isAdmin = player.firebaseId === process.env.ADMIN_FIREBASE_UID
+    
+        socket.emit(GAME_EVENTS.IS_ADMIN, { isAdmin })
+    })
 
     socket.on(GAME_EVENTS.INPUT_UPDATE, (inputData: iPlayerInputs) => {
         const player = players[socket.id]
@@ -475,6 +505,29 @@ const setupGameEvents = async (socket: Socket) => {
 
         bullets.push(bulletData)
         io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
+    })
+
+    socket.on(GAME_EVENTS.ADMIN_ADD_BOT, () => {
+        const userData = (socket as any).userData
+
+        if (userData?.firebase_id !== process.env.ADMIN_FIREBASE_UID) return
+
+        spawnBots(1)
+    })
+
+    socket.on(GAME_EVENTS.ADMIN_REMOVE_BOT, () => {
+        const userData = (socket as any).userData
+
+        if (userData?.firebase_id !== process.env.ADMIN_FIREBASE_UID) return
+
+        if (bots.length > 0) {
+            const removedBot = bots.pop()
+
+            if (removedBot) {
+                delete players[removedBot.id]
+                io.emit(GAME_EVENTS.PLAYER_LEFT, removedBot.id)
+            }
+        }
     })
 
     socket.on('disconnect', () => {
