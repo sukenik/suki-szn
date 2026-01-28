@@ -9,6 +9,7 @@ export const GAME_SETTINGS = {
   HEAL_AMOUNT: 20,
   HEAL_RESPAWN_TIME: 10000,
   GRID_SIZE: 50,
+  BULLET_SPEED: 600
 } as const
 
 export const GAME_EVENTS = {
@@ -24,6 +25,10 @@ export const GAME_EVENTS = {
   LEADERBOARD_UPDATE: 'leaderboardUpdate',
   REQUEST_INITIAL_STATE: 'requestInitialState',
   INITIAL_OBSTACLES: 'initialObstacles',
+  ADMIN_ADD_BOT: 'adminAddBot',
+  ADMIN_REMOVE_BOT: 'adminRemoveBot',
+  REQUEST_IS_ADMIN: 'requestIsAdmin',
+  IS_ADMIN: 'isAdmin',
 } as const
 
 export type GameEventType = typeof GAME_EVENTS[keyof typeof GAME_EVENTS]
