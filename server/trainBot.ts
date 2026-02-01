@@ -4,12 +4,14 @@ import path from 'path'
 import { DATA_FILE_NAME, MODEL_FILE_NAME } from './src/consts'
 
 async function train() {
-    if (!fs.existsSync(DATA_FILE_NAME)) {
-        console.error(`File: ${DATA_FILE_NAME}, not found`)
+    const dataPath = path.join(__dirname, 'src', 'ai', DATA_FILE_NAME)
+
+    if (!fs.existsSync(dataPath)) {
+        console.error(`File: ${dataPath}, not found`)
         return
     }
 
-    const rawData = JSON.parse(fs.readFileSync(DATA_FILE_NAME, 'utf8'))
+    const rawData = JSON.parse(fs.readFileSync(dataPath, 'utf8'))
 
     const hits = rawData.filter((d: any) => d.output[0] === 1)
     const misses = rawData.filter((d: any) => d.output[0] === 0)
@@ -74,7 +76,7 @@ async function train() {
             weightData: weightsBuffer.toString('base64')
         }
 
-        const modelPath = path.join(__dirname, '..', 'ai', MODEL_FILE_NAME)
+        const modelPath = path.join(__dirname, 'src', 'ai', MODEL_FILE_NAME)
 
         fs.writeFileSync(modelPath, JSON.stringify(manifest))
         return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: 'JSON' } }

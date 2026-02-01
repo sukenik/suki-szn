@@ -1,8 +1,9 @@
 import fs from 'fs'
+import path from 'path'
 import { GAME_SETTINGS } from '../../../shared/consts'
 import { iPlayer } from '../../../shared/types'
-import { Bot } from '../logic/Bot'
 import { DATA_FILE_NAME } from '../consts'
+import { Bot } from '../logic/Bot'
 
 interface iTrainingData {
 	input: [number, number, number, number]
@@ -63,6 +64,8 @@ export const recordHit = (bulletId: string) => {
 export const saveBufferToFile = () => {
 	if (dataBuffer.length === 0) return
 
-	fs.writeFileSync(DATA_FILE_NAME, JSON.stringify(dataBuffer, null, 2))
-	console.log(`✅ Saved ${dataBuffer.length} samples to ${DATA_FILE_NAME}`)
+	const dataPath = path.join(__dirname, DATA_FILE_NAME)
+
+	fs.writeFileSync(dataPath, JSON.stringify(dataBuffer, null, 2))
+	console.log(`✅ Saved ${dataBuffer.length} samples to ${dataPath}`)
 }
