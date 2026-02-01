@@ -24,6 +24,7 @@ export class MainScene extends Phaser.Scene {
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
+    private adminCheckInterval!: Phaser.Time.TimerEvent
     private obstacles: ObstaclesType = []
     private isAdmin: boolean = false
     private adminUIApplied: boolean = false
@@ -66,10 +67,29 @@ export class MainScene extends Phaser.Scene {
             }
         })
 
+        const MAX_ADMIN_ATTEMPTS = 10
+        let adminAttempts = 0
+
+        this.adminCheckInterval = this.time.addEvent({
+            delay: 1000,
+            loop: true,
+            callback: () => {
+                adminAttempts++
+
+                if (this.socket.connected) {
+                    this.socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
+                }
+
+                if (adminAttempts >= MAX_ADMIN_ATTEMPTS) {
+                    console.warn('🚩 Reached max admin check attempts. Stopping.')
+                    this.adminCheckInterval.remove()
+                }
+            }
+        })
+
         const attemptRequest = () => {
             if (this.socket.connected) {
                 this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
-                this.socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
             }
         }
 
@@ -601,7 +621,13 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.IS_ADMIN, (data: { isAdmin: boolean }) => {
-            this.isAdmin = data.isAdmin
+            this.adminCheckInterval.remove()
+
+            if (data.isAdmin) {
+                this.isAdmin = true
+                this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+                this.adminUIApplied = true
+            }
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
