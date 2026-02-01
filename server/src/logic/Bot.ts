@@ -1,5 +1,6 @@
 import * as tf from '@tensorflow/tfjs'
 import fs from 'fs'
+import path from 'path'
 import { GAME_SETTINGS } from '../../../shared/consts'
 import { iBullet, iHealPack, iPlayer } from '../../../shared/types'
 import { MODEL_FILE_NAME } from '../consts'
@@ -309,7 +310,9 @@ export class Bot implements iPlayer {
 
     async loadBrain() {
         try {
-            const rawData = fs.readFileSync(MODEL_FILE_NAME, 'utf8')
+            const modelPath = path.join(__dirname, '..', 'ai', MODEL_FILE_NAME)
+
+            const rawData = fs.readFileSync(modelPath, 'utf8')
             const manifest = JSON.parse(rawData)
 
             const buffer = Buffer.from(manifest.weightData, 'base64')
