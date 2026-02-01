@@ -1,4 +1,6 @@
 */node_modules
-server/service-account.json
 */.env
 */dist
+
+server/service-account.json
+server/src/ai/training-data.json

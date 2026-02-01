@@ -1,5 +1,8 @@
+import * as tf from '@tensorflow/tfjs'
+import fs from 'fs'
 import { GAME_SETTINGS } from '../../../shared/consts'
 import { iBullet, iHealPack, iPlayer } from '../../../shared/types'
+import { MODEL_FILE_NAME } from '../consts'
 import { AStarPathfinder } from './AStarPathfinder'
 import { GridManager, iGridNode } from './GridManager'
 
@@ -10,15 +13,17 @@ enum BotState {
 }
 
 type ShootCallback = (bulletData: iBullet) => void
+type RecordCallback = (bulletData: iBullet, target: iPlayer) => void
 
-const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED } = GAME_SETTINGS
-const OFFSET = 90
+const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED, ANGLE_OFFSET } = GAME_SETTINGS
 
 export class Bot implements iPlayer {
     public id: string
     public x: number
     public y: number
     public angle: number = 0
+    public vx: number = 0
+    public vy: number = 0
     public hp: number = MAX_HEALTH
     public name: string
     public kills: number = 0
@@ -31,12 +36,14 @@ export class Bot implements iPlayer {
     private gridManager: GridManager
     private state: BotState = BotState.CHASE
     private onShoot: ShootCallback
+    private onRecordShot?: RecordCallback
     private lastShotTime: number = 0
-    private readonly SHOOT_COOLDOWN = 1000
+    private readonly SHOOT_COOLDOWN = 200
+    private model?: tf.LayersModel
 
     constructor(
         id: string, x: number, y: number, name: string, pathfinder: AStarPathfinder,
-        gridManager: GridManager, onShoot: ShootCallback
+        gridManager: GridManager, onShoot: ShootCallback, onRecordShot?: RecordCallback
     ) {
         this.id = id
         this.x = x
@@ -45,6 +52,7 @@ export class Bot implements iPlayer {
         this.pathfinder = pathfinder
         this.gridManager = gridManager
         this.onShoot = onShoot
+        this.onRecordShot = onRecordShot
     }
 
     public update(allPlayers: { [id: string]: iPlayer }, healPacks: iHealPack[]) {
@@ -64,14 +72,30 @@ export class Bot implements iPlayer {
                 break
             case BotState.ATTACK:
                 if (target) {
-                    this.lookAt(target.x, target.y)
-
                     const sep = this.applySeparation(allBots, 0, 0)
                     this.x += sep.x
                     this.y += sep.y
 
-                    if (this.canShootSafely(allBots)) {
-                        this.shoot()
+                    const dist = Math.hypot(this.x - target.x, this.y - target.y)
+
+                    if (dist > 150) {
+                        this.move(target.x, target.y, allBots)
+                    }
+                    else {
+                        this.vx = 0
+                        this.vy = 0
+                    }
+
+                    this.lookAt(target.x, target.y)
+
+                    const currentAngleRad = (this.angle - ANGLE_OFFSET) * (Math.PI / 180)
+                    const angleToTarget = Math.atan2(target.y - this.y, target.x - this.x)
+
+                    let diff = Math.abs(currentAngleRad - angleToTarget)
+                    if (diff > Math.PI) diff = Math.PI * 2 - diff
+
+                    if (this.shouldIShoot(dist, target, diff)) {
+                        this.shoot(target)
                     }
                 }
                 break
@@ -88,7 +112,7 @@ export class Bot implements iPlayer {
         for (const id in players) {
             const p = players[id]
 
-            if ((p as any).isBot || p.id === this.id) continue
+            if (p.id === this.id) continue
 
             const dist = Math.hypot(this.x - p.x, this.y - p.y)
 
@@ -124,7 +148,11 @@ export class Bot implements iPlayer {
             this.currentPath = []
         }
         else {
-            if (this.currentPath.length < 2) return
+            if (this.currentPath.length < 2) {
+                this.vx = 0
+                this.vy = 0
+                return
+            }
 
             const nextNode = this.currentPath[1]
             targetX = nextNode.worldX
@@ -132,6 +160,8 @@ export class Bot implements iPlayer {
 
             if (Math.hypot(targetX - this.x, targetY - this.y) < 10) {
                 this.currentPath.shift()
+                this.vx = 0
+                this.vy = 0
                 return
             }
         }
@@ -148,10 +178,12 @@ export class Bot implements iPlayer {
 
         const finalAngleRad = Math.atan2(separatedVelocity.y, separatedVelocity.x)
 
-        this.angle = (finalAngleRad * (180 / Math.PI)) + OFFSET
+        this.angle = (finalAngleRad * (180 / Math.PI)) + ANGLE_OFFSET
 
         this.x += separatedVelocity.x
         this.y += separatedVelocity.y
+        this.vx = separatedVelocity.x
+        this.vy = separatedVelocity.y
     }
 
     private lookAt(targetX: number, targetY: number) {
@@ -159,7 +191,7 @@ export class Bot implements iPlayer {
         const dy = targetY - this.y
         
         const angleRad = Math.atan2(dy, dx)
-        this.angle = (angleRad * (180 / Math.PI)) + OFFSET
+        this.angle = (angleRad * (180 / Math.PI)) + ANGLE_OFFSET
     }
 
     private evaluateState(target: iPlayer | null) {
@@ -184,23 +216,36 @@ export class Bot implements iPlayer {
         }
     }
 
-    private shoot() {
+    private shoot(target: iPlayer) {
         const now = Date.now()
         if (now - this.lastShotTime < this.SHOOT_COOLDOWN) return
 
-        const shootAngle = (this.angle - OFFSET) * (Math.PI / 180)
+        const dist = Math.hypot(target.x - this.x, target.y - this.y)
+        const timeToHit = dist / BULLET_SPEED
+
+        const predictedX = target.x + target.vx * timeToHit
+        const predictedY = target.y + target.vy * timeToHit
+
+        const dx = predictedX - this.x
+        const dy = predictedY - this.y
+        const predictedAngleRad = Math.atan2(dy, dx)
 
         const bulletData: iBullet = {
             id: `bullet-bot-${Math.random().toString(36).substr(2, 5)}`,
             playerId: this.id,
             x: this.x,
             y: this.y,
-            vx: Math.cos(shootAngle) * BULLET_SPEED,
-            vy: Math.sin(shootAngle) * BULLET_SPEED,
-            angle: this.angle - OFFSET
+            vx: Math.cos(predictedAngleRad) * BULLET_SPEED,
+            vy: Math.sin(predictedAngleRad) * BULLET_SPEED,
+            angle: this.angle - ANGLE_OFFSET
         }
 
         this.onShoot(bulletData)
+
+        if (this.onRecordShot) {
+            this.onRecordShot(bulletData, target)
+        }
+
         this.lastShotTime = now
     }
 
@@ -226,31 +271,6 @@ export class Bot implements iPlayer {
             x: vx + pushX,
             y: vy + pushY
         }
-    }
-
-    private canShootSafely(allBots: Bot[]): boolean {
-        const shootAngleRad = (this.angle - OFFSET) * (Math.PI / 180)
-        
-        for (const other of allBots) {
-            if (other.id === this.id) continue
-
-            const dx = other.x - this.x
-            const dy = other.y - this.y
-            const dist = Math.hypot(dx, dy)
-
-            if (dist < 400) {
-                const angleToOther = Math.atan2(dy, dx)
-            
-                let diff = Math.abs(shootAngleRad - angleToOther)
-                if (diff > Math.PI) diff = Math.PI * 2 - diff
-
-                if (diff < 0.25) { 
-                    return false
-                }
-            }
-        }
-
-        return true
     }
 
     private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null) {
@@ -285,5 +305,47 @@ export class Bot implements iPlayer {
         }
 
         this.move(closestHeal.x, closestHeal.y, allBots)
+    }
+
+    async loadBrain() {
+        try {
+            const rawData = fs.readFileSync(MODEL_FILE_NAME, 'utf8')
+            const manifest = JSON.parse(rawData)
+
+            const buffer = Buffer.from(manifest.weightData, 'base64')
+            const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+
+            this.model = await tf.loadLayersModel(tf.io.fromMemory({
+                modelTopology: manifest.modelTopology,
+                weightSpecs: manifest.weightSpecs,
+                weightData: arrayBuffer as ArrayBuffer
+            }))
+        } catch (e: any) {
+            console.log('❌ Failed to load brain:', e.message)
+        }
+    }
+
+    shouldIShoot(distance: number, target: iPlayer, relativeAngle: number): boolean {
+        if (!this.model) return true
+
+        const targetVx = target.vx
+        const targetVy = target.vy
+
+        const input = tf.tensor2d([[
+            distance / 1000,
+            targetVx / 5,
+            targetVy / 5,
+            relativeAngle / Math.PI
+        ]])
+
+        const prediction = this.model.predict(input) as tf.Tensor
+        const score = prediction.dataSync()[0]
+
+        input.dispose()
+        prediction.dispose()
+
+        if (distance < 150) return score > 0.5
+
+        return score > 0.75
     }
 }

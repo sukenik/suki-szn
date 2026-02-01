@@ -7,7 +7,7 @@ import type { iBulletSprite } from './entities/types'
 
 const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
-    TICK_RATE, PLAYER_RADIUS, BULLET_SPEED
+    TICK_RATE, PLAYER_RADIUS, BULLET_SPEED, ANGLE_OFFSET
 } = GAME_SETTINGS
 
 const MAP_SIZE = 200
@@ -133,8 +133,8 @@ export class MainScene extends Phaser.Scene {
         let movementAngle = this.playerContainer.ship.angle
 
         if (vx !== 0 || vy !== 0) {
-            movementAngle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
-            this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + 90
+            movementAngle = (Math.atan2(vy, vx) * (180 / Math.PI)) + ANGLE_OFFSET
+            this.playerContainer.ship.angle = (Math.atan2(vy, vx) * (180 / Math.PI)) + ANGLE_OFFSET
         }
 
         const currentInputs = {
