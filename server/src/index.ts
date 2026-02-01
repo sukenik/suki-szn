@@ -257,8 +257,8 @@ const updatePlayerPhysics = () => {
             vy *= factor
         }
 
-        const nextX = player.x + vx
-        const nextY = player.y + vy
+        const nextX = Math.max(0, Math.min(WORLD_WIDTH, player.x + vx))
+        const nextY = Math.max(0, Math.min(WORLD_HEIGHT, player.y + vy))
 
         const isColliding = checkCollision(nextX, nextY)
 

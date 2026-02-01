@@ -154,6 +154,9 @@ export class MainScene extends Phaser.Scene {
         if (currentInputs.down)  nextY += moveStep
         if (currentInputs.left)  nextX -= moveStep
         if (currentInputs.right) nextX += moveStep
+
+        nextX = Phaser.Math.Clamp(nextX, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS)
+        nextY = Phaser.Math.Clamp(nextY, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS)
         
         if (!this.checkCollision(nextX, nextY)) {
             this.playerContainer.x = nextX
@@ -314,6 +317,12 @@ export class MainScene extends Phaser.Scene {
     }
 
     private showAdminUI = (mapSize: number, margin: number) => {
+        if (this.adminAddBtn || this.adminRemoveBtn) {
+            this.adminAddBtn?.setVisible(true)
+            this.adminRemoveBtn?.setVisible(true)
+            return
+        }
+
         const startX = this.scale.width - 200
         const startY = mapSize + margin + 20
 
@@ -590,6 +599,10 @@ export class MainScene extends Phaser.Scene {
         this.socket.on(GAME_EVENTS.IS_ADMIN, (data: { isAdmin: boolean }) => {
             if (data.isAdmin) {
                 this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+            }
+            else {
+                this.adminAddBtn?.setVisible(false)
+                this.adminRemoveBtn?.setVisible(false)
             }
         })
 
