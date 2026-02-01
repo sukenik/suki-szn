@@ -25,6 +25,8 @@ export class MainScene extends Phaser.Scene {
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
     private obstacles: ObstaclesType = []
+    private isAdmin: boolean = false
+    private adminUIApplied: boolean = false
     private adminAddBtn?: Phaser.GameObjects.Text
     private adminRemoveBtn?: Phaser.GameObjects.Text
 
@@ -120,6 +122,11 @@ export class MainScene extends Phaser.Scene {
     }
 
     update() {
+        if (this.isAdmin && !this.adminUIApplied) {
+            this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+            this.adminUIApplied = true
+        }
+
         if (this.starfield) {
             this.starfield.tilePositionX = this.cameras.main.scrollX * 0.2
             this.starfield.tilePositionY = this.cameras.main.scrollY * 0.2
@@ -317,11 +324,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     private showAdminUI = (mapSize: number, margin: number) => {
-        if (this.adminAddBtn || this.adminRemoveBtn) {
-            this.adminAddBtn?.setVisible(true)
-            this.adminRemoveBtn?.setVisible(true)
-            return
-        }
+        if (this.adminAddBtn) this.adminAddBtn.destroy()
+        if (this.adminRemoveBtn) this.adminRemoveBtn.destroy()
 
         const startX = this.scale.width - 200
         const startY = mapSize + margin + 20
@@ -597,13 +601,7 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.IS_ADMIN, (data: { isAdmin: boolean }) => {
-            if (data.isAdmin) {
-                this.showAdminUI(MAP_SIZE, MAP_MARGIN)
-            }
-            else {
-                this.adminAddBtn?.setVisible(false)
-                this.adminRemoveBtn?.setVisible(false)
-            }
+            this.isAdmin = data.isAdmin
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
