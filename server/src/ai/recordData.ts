@@ -1,4 +1,3 @@
-
 import fs from 'fs'
 import { GAME_SETTINGS } from '../../../shared/consts'
 import { iPlayer } from '../../../shared/types'
