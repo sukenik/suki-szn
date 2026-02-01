@@ -1,5 +1,6 @@
 import { onAuthStateChanged } from 'firebase/auth'
 import { io } from 'socket.io-client'
+import { GAME_EVENTS } from '../../shared/consts'
 import { auth, loginEmail, loginWithGoogle, registerEmail } from './firebase'
 import { MainScene } from './main'
 
@@ -82,6 +83,8 @@ async function startApp() {
         })
 
         socket.on('connect', () => {
+            socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
+
             if (!gameInstance) {
                 const game = new Phaser.Game(config)
                 game.registry.set('socket', socket)
