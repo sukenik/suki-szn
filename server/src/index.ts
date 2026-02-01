@@ -237,7 +237,7 @@ const updateHeals = () => {
 const updatePlayerPhysics = () => {
     Object.values(players).forEach((player) => {
         const input = player.lastInput
-        if (!input || (player as Bot).isBot) return
+        if (!input || (player as Bot)?.isBot) return
 
         player.angle = input.angle
 
@@ -293,7 +293,7 @@ const respawnPlayer = (player: iPlayer, id: string, bulletIdToDelete: string) =>
     player.y = y
     player.hp = MAX_HEALTH
 
-    if ((player as Bot).isBot) {
+    if ((player as Bot)?.isBot) {
         const actualBot = bots.find(b => b.id === id)
 
         if (actualBot) {
@@ -361,7 +361,7 @@ setInterval(async () => {
             if (dist < PLAYER_RADIUS) {
                 isTrainingMode && recordHit(bullet.id)
 
-                if ((player as Bot).isBot) {
+                if ((player as Bot)?.isBot) {
                     const bot = bots.find(b => b.id === id)
 
                     if (bot) {
@@ -375,8 +375,8 @@ setInterval(async () => {
                     const killerId = bullet.playerId
                     const killer = players[killerId]
 
-                    const isKillerBot = (killer as Bot).isBot
-                    const isVictimBot = (player as Bot).isBot
+                    const isKillerBot = (killer as Bot)?.isBot
+                    const isVictimBot = (player as Bot)?.isBot
 
                     if (!isVictimBot && !isKillerBot) {
                         killer.kills += 1
