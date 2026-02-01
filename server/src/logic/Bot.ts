@@ -59,7 +59,7 @@ export class Bot implements iPlayer {
     public update(allPlayers: { [id: string]: iPlayer }, healPacks: iHealPack[]) {
         const target = this.findClosestTarget(allPlayers)
         const allBots = Object.values(allPlayers).filter(
-            player => (player as Bot).isBot
+            player => (player as Bot)?.isBot
         ) as Bot[]
 
         this.evaluateState(target)
