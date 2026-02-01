@@ -1,5 +1,6 @@
 import * as tf from '@tensorflow/tfjs'
 import fs from 'fs'
+import path from 'path'
 import { DATA_FILE_NAME, MODEL_FILE_NAME } from './src/consts'
 
 async function train() {
@@ -73,7 +74,9 @@ async function train() {
             weightData: weightsBuffer.toString('base64')
         }
 
-        fs.writeFileSync(MODEL_FILE_NAME, JSON.stringify(manifest))
+        const modelPath = path.join(__dirname, '..', 'ai', MODEL_FILE_NAME)
+
+        fs.writeFileSync(modelPath, JSON.stringify(manifest))
         return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: 'JSON' } }
     }))
 
