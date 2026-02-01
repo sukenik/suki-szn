@@ -16,6 +16,8 @@ export interface iPlayer {
     hp: number
     name: string
     kills: number
+    vx: number
+    vy: number
     lastInput?: iPlayerInputs
 }
 

@@ -5,6 +5,7 @@ import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
 import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import { recordHit, recordMiss, recordShotAttempt, saveBufferToFile } from './ai/recordData'
 import { supabase } from './db'
 import { AStarPathfinder } from './logic/AStarPathfinder'
 import { Bot } from './logic/Bot'
@@ -51,6 +52,13 @@ io.use((socket, next) => {
 
     next()
 })
+
+const isTrainingMode = process.env.TRAINING_MODE === 'true'
+
+if (isTrainingMode) {
+    setInterval(saveBufferToFile, 60 * 1000)
+    setInterval(recordMiss, 1000)
+}
 
 const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
@@ -161,7 +169,7 @@ let healPacks: iHealPack[] = Array.from({ length: 3 }).map((_, i) => ({
     active: true
 }))
 
-const spawnBots = (count: number) => {
+const spawnBots = async (count: number) => {
     for (let i = 0; i < count; i++) {
         const { x, y } = generateNewLocation()
 
@@ -177,10 +185,23 @@ const spawnBots = (count: number) => {
             (bulletData) => {
                 bullets.push(bulletData)
                 io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
+            },
+            (bulletData, target) => {
+                isTrainingMode && recordShotAttempt(bot, target, bulletData.id)
             }
         )
 
+        await bot.loadBrain()
+
         bots.push(bot)
+    }
+}
+
+if (isTrainingMode) {
+    try {
+        spawnBots(10)
+    } catch (error) {
+        console.log(error)
     }
 }
 
@@ -222,19 +243,34 @@ const updatePlayerPhysics = () => {
 
         const moveStep = PLAYER_SPEED / TICK_RATE
 
-        let nextX = player.x
-        let nextY = player.y
+        let vx = 0
+        let vy = 0
 
-        if (input.up)    nextY -= moveStep
-        if (input.down)  nextY += moveStep
-        if (input.left)  nextX -= moveStep
-        if (input.right) nextX += moveStep
+        if (input.up)    vy -= moveStep
+        if (input.down)  vy += moveStep
+        if (input.left)  vx -= moveStep
+        if (input.right) vx += moveStep
+
+        if (vx !== 0 && vy !== 0) {
+            const factor = 1 / Math.sqrt(2)
+            vx *= factor
+            vy *= factor
+        }
+
+        const nextX = player.x + vx
+        const nextY = player.y + vy
 
         const isColliding = checkCollision(nextX, nextY)
 
         if (!isColliding) {
             player.x = nextX
             player.y = nextY
+            player.vx = vx
+            player.vy = vy
+        }
+        else {
+            player.vx = 0
+            player.vy = 0
         }
     })
 }
@@ -283,6 +319,8 @@ setInterval(async () => {
             id: bot.id,
             x: bot.x,
             y: bot.y,
+            vx: bot.vx,
+            vy: bot.vy,
             angle: bot.angle,
             hp: bot.hp,
             name: bot.name,
@@ -321,6 +359,8 @@ setInterval(async () => {
             const dist = Math.hypot(bullet.x - player.x, bullet.y - player.y)
             
             if (dist < PLAYER_RADIUS) {
+                isTrainingMode && recordHit(bullet.id)
+
                 if ((player as Bot).isBot) {
                     const bot = bots.find(b => b.id === id)
 
@@ -447,7 +487,9 @@ io.on('connection', async (socket) => {
             angle: 0,
             hp: MAX_HEALTH,
             name: user.username,
-            kills: 0
+            kills: 0,
+            vx: 0,
+            vy: 0
         }
 
         console.log(`User ${user.username} authenticated and joined the game.`)

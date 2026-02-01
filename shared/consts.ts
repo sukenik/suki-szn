@@ -9,7 +9,8 @@ export const GAME_SETTINGS = {
   HEAL_AMOUNT: 20,
   HEAL_RESPAWN_TIME: 10000,
   GRID_SIZE: 50,
-  BULLET_SPEED: 600
+  BULLET_SPEED: 600,
+  ANGLE_OFFSET: 90
 } as const
 
 export const GAME_EVENTS = {
