@@ -509,9 +509,12 @@ const setupGameEvents = async (socket: Socket) => {
 
     socket.on(GAME_EVENTS.REQUEST_IS_ADMIN, async () => {
         const player = players[socket.id]
-        const isAdmin = player.firebaseId === process.env.ADMIN_FIREBASE_UID
-    
-        socket.emit(GAME_EVENTS.IS_ADMIN, { isAdmin })
+
+        if (player) {
+            const isAdmin = player.firebaseId === process.env.ADMIN_FIREBASE_UID
+
+            socket.emit(GAME_EVENTS.IS_ADMIN, { isAdmin })
+        }
     })
 
     socket.on(GAME_EVENTS.INPUT_UPDATE, (inputData: iPlayerInputs) => {
