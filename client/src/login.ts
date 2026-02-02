@@ -5,11 +5,15 @@ import { MainScene } from './main'
 
 const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
-    width: window.innerWidth,
-    height: window.innerHeight,
+    input: {
+        activePointers: 3
+    },
     scale: {
         mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        parent: 'game-container',
+        width: '100%',
+        height: '100%',
     },
     physics: {
         default: 'arcade',
@@ -17,6 +21,15 @@ const config: Phaser.Types.Core.GameConfig = {
             gravity: { x: 0, y: 0 },
             debug: false
         }
+    },
+    render: {
+        pixelArt: false,
+        antialias: true,
+        roundPixels: false
+    },
+    fps: {
+        target: 60,
+        forceSetTimeOut: true
     },
     scene: MainScene
 }

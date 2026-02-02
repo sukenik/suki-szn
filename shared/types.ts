@@ -5,6 +5,8 @@ export interface iPlayerInputs {
     right: boolean
     shoot: boolean
     angle: number
+    vx: number
+    vy: number
 }
 
 export interface iPlayer {

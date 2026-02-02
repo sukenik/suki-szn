@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
-import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iPlayer, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
@@ -9,9 +9,6 @@ const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
     TICK_RATE, PLAYER_RADIUS, BULLET_SPEED, ANGLE_OFFSET
 } = GAME_SETTINGS
-
-const MAP_SIZE = 200
-const MAP_MARGIN = 20
 
 export class MainScene extends Phaser.Scene {
     private socket!: Socket
@@ -28,8 +25,15 @@ export class MainScene extends Phaser.Scene {
     private obstacles: ObstaclesType = []
     private isAdmin: boolean = false
     private adminUIApplied: boolean = false
+    private isMobile: boolean = false
+    private currentMapSize: number = 200
+    private readonly MAP_MARGIN: number = 15
+    private joystickVector: Phaser.Math.Vector2 = new Phaser.Math.Vector2(0, 0)
     private adminAddBtn?: Phaser.GameObjects.Text
     private adminRemoveBtn?: Phaser.GameObjects.Text
+    private joystickBase?: Phaser.GameObjects.Arc
+    private joystickThumb?: Phaser.GameObjects.Arc
+    private joystickPointer?: Phaser.Input.Pointer
 
     constructor() {
         super('MainScene')
@@ -46,24 +50,43 @@ export class MainScene extends Phaser.Scene {
 
     create() {
         this.socket = this.game.registry.get('socket')
+        this.isMobile = this.scale.width < 1000
+        if (this.isMobile) this.currentMapSize = 120
 
         this.setupGroups()
         this.setupPhysics()
         this.setupBackground()
-        this.setupMinimap(MAP_SIZE, MAP_MARGIN)
+        this.setupMinimap(this.currentMapSize, this.MAP_MARGIN)
         this.setupControls()
+        this.isMobile && this.setupMobileControls()
         this.setupNetworkEvents()
         this.setupLeaderboard()
 
-        this.scale.on('resize', () => {
-            if (this.starfield) {
-                this.starfield.setSize(this.scale.width, this.scale.height)
+        this.events.on('postupdate', () => {
+            if (this.playerContainer) {
+                const targetX = this.playerContainer.x - this.cameras.main.width / 2
+                const targetY = this.playerContainer.y - this.cameras.main.height / 2
+                
+                this.cameras.main.scrollX = targetX
+                this.cameras.main.scrollY = targetY
             }
-            this.updateMinimapLayout(MAP_SIZE, MAP_MARGIN)
+        })
+
+        this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+            const { width, height } = gameSize
+
+            this.updateMinimapLayout(this.currentMapSize, this.MAP_MARGIN)
+            this.setupMobileControls()
+
+            if (this.starfield) {
+                this.starfield.setSize(width, height)
+            }
 
             if (this.adminAddBtn && this.adminRemoveBtn) {
-                this.adminAddBtn.setX(this.scale.width - 200)
-                this.adminRemoveBtn.setX(this.scale.width - 200)
+                const margin = this.isMobile ? 140 : 200
+
+                this.adminAddBtn.setX(this.scale.width - margin)
+                this.adminRemoveBtn.setX(this.scale.width - margin)
             }
         })
 
@@ -116,8 +139,6 @@ export class MainScene extends Phaser.Scene {
         body.setSize(PLAYER_SIZE, PLAYER_SIZE)
         body.setOffset(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2)
 
-        this.cameras.main.startFollow(container, true, 0.1, 0.1)
-        
         if (this.minimap) {
             this.minimap.ignore([container.nameTag, container.healthBar])
         }
@@ -143,20 +164,47 @@ export class MainScene extends Phaser.Scene {
 
     update() {
         if (this.isAdmin && !this.adminUIApplied) {
-            this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+            this.showAdminUI(this.currentMapSize, this.MAP_MARGIN)
             this.adminUIApplied = true
         }
 
         if (this.starfield) {
-            this.starfield.tilePositionX = this.cameras.main.scrollX * 0.2
-            this.starfield.tilePositionY = this.cameras.main.scrollY * 0.2
+            this.starfield.tilePositionX = Math.floor(this.cameras.main.scrollX * 0.2)
+            this.starfield.tilePositionY = Math.floor(this.cameras.main.scrollY * 0.2)
         }
 
         if (!this.playerContainer || !this.cursors) return
-
-        const vx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0)
-        const vy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0)
         
+        let vx = 0
+        let vy = 0
+
+        vx = (this.cursors.right.isDown ? 1 : 0) - (this.cursors.left.isDown ? 1 : 0)
+        vy = (this.cursors.down.isDown ? 1 : 0) - (this.cursors.up.isDown ? 1 : 0)
+
+        if (this.joystickPointer && this.joystickPointer.isDown) {
+            const base = this.joystickBase!
+            const dist = Phaser.Math.Distance.Between(this.joystickPointer.x, this.joystickPointer.y, base.x, base.y)
+            const angle = Phaser.Math.Angle.Between(base.x, base.y, this.joystickPointer.x, this.joystickPointer.y)
+
+            const maxDist = 60
+            const clampedDist = Math.min(dist, maxDist)
+
+            this.joystickThumb?.setPosition(
+                base.x + Math.cos(angle) * clampedDist,
+                base.y + Math.sin(angle) * clampedDist
+            )
+
+            vx = Math.cos(angle) * (clampedDist / maxDist)
+            vy = Math.sin(angle) * (clampedDist / maxDist)
+        }
+
+        const inputLength = Math.sqrt(vx * vx + vy * vy)
+
+        if (inputLength > 1) {
+            vx /= inputLength
+            vy /= inputLength
+        }
+
         let movementAngle = this.playerContainer.ship.angle
 
         if (vx !== 0 || vy !== 0) {
@@ -165,22 +213,20 @@ export class MainScene extends Phaser.Scene {
         }
 
         const currentInputs = {
-            up: this.cursors.up.isDown,
-            down: this.cursors.down.isDown,
-            left: this.cursors.left.isDown,
-            right: this.cursors.right.isDown,
+            up: vy < -0.1 || this.cursors.up.isDown,
+            down: vy > 0.1 || this.cursors.down.isDown,
+            left: vx < -0.1 || this.cursors.left.isDown,
+            right: vx > 0.1 || this.cursors.right.isDown,
+            vx,
+            vy,
             angle: movementAngle,
             shoot: false
-        }
+        } as iPlayerInputs
 
         const moveStep = PLAYER_SPEED / TICK_RATE
-        let nextX = this.playerContainer.x
-        let nextY = this.playerContainer.y
 
-        if (currentInputs.up)    nextY -= moveStep
-        if (currentInputs.down)  nextY += moveStep
-        if (currentInputs.left)  nextX -= moveStep
-        if (currentInputs.right) nextX += moveStep
+        let nextX = this.playerContainer.x + (vx * moveStep)
+        let nextY = this.playerContainer.y + (vy * moveStep)
 
         nextX = Phaser.Math.Clamp(nextX, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS)
         nextY = Phaser.Math.Clamp(nextY, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS)
@@ -192,7 +238,7 @@ export class MainScene extends Phaser.Scene {
 
         this.socket.emit(GAME_EVENTS.INPUT_UPDATE, currentInputs)
 
-        const isMoving = currentInputs.up || currentInputs.down || currentInputs.left || currentInputs.right
+        const isMoving = vx !== 0 || vy !== 0
 
         if (isMoving) {
             this.playerContainer.updateEmitter()
@@ -245,7 +291,13 @@ export class MainScene extends Phaser.Scene {
     }
 
     shoot(pointer: Phaser.Input.Pointer) {
-        if (!this.playerContainer || !this.socket.id) return
+        if (
+            !this.playerContainer
+            || !this.socket.id
+            || pointer === this.joystickPointer
+        ) {
+            return
+        }
 
         const container = this.playerContainer
 
@@ -312,8 +364,6 @@ export class MainScene extends Phaser.Scene {
             this.createBulletImpact(bullet.x, bullet.y)
             bullet.destroy()
         })
-
-        this.cameras.main.setRoundPixels(true)
     }
 
     private setupBackground = () => {
@@ -347,11 +397,11 @@ export class MainScene extends Phaser.Scene {
         if (this.adminAddBtn) this.adminAddBtn.destroy()
         if (this.adminRemoveBtn) this.adminRemoveBtn.destroy()
 
-        const startX = this.scale.width - 200
+        const startX = this.scale.width - (this.isMobile ? 140 : 200)
         const startY = mapSize + margin + 20
 
         this.adminAddBtn = this.add.text(startX, startY, ' [+] ADD BOT ', { 
-            fontSize: '18px',
+            fontSize: this.isMobile ? '14px' : '18px',
             fontFamily: 'Arial',
             color: '#00ff00',
             backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -362,7 +412,7 @@ export class MainScene extends Phaser.Scene {
         .setDepth(9999)
 
         this.adminRemoveBtn = this.add.text(startX, startY + 35, ' [-] REMOVE BOT ', { 
-            fontSize: '18px',
+            fontSize: this.isMobile ? '14px' : '18px',
             fontFamily: 'Arial',
             color: '#ff0000',
             backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -377,11 +427,11 @@ export class MainScene extends Phaser.Scene {
             btn.on('pointerout', () => btn.setStyle({ fill: btn === this.adminAddBtn ? '#00ff00' : '#ff0000' }))
         })
 
-        this.adminAddBtn.on('pointerdown', (event: Phaser.Types.Input.EventData) => {
+        this.adminAddBtn.on('pointerdown', (_: Phaser.Input.Pointer, _2: number, _3: number, event: Phaser.Types.Input.EventData) => {
             this.socket.emit(GAME_EVENTS.ADMIN_ADD_BOT)
             event.stopPropagation()
         })
-        this.adminRemoveBtn.on('pointerdown', (event: Phaser.Types.Input.EventData) => {
+        this.adminRemoveBtn.on('pointerdown', (_: Phaser.Input.Pointer, _2: number, _3: number, event: Phaser.Types.Input.EventData) => {
             this.socket.emit(GAME_EVENTS.ADMIN_REMOVE_BOT)
             event.stopPropagation()
         })
@@ -397,6 +447,10 @@ export class MainScene extends Phaser.Scene {
 
         if (this.minimap) {
             this.minimap.setPosition(x, y)
+            this.minimap.setSize(mapSize, mapSize)
+
+            const zoom = mapSize / GAME_SETTINGS.WORLD_WIDTH;
+            this.minimap.setZoom(zoom)
         }
 
         if (this.minimapBorder) {
@@ -423,6 +477,10 @@ export class MainScene extends Phaser.Scene {
         }).setScrollFactor(0).setDepth(1000)
         
         if (this.minimap) this.minimap.ignore(this.leaderboardText)
+
+        if (this.isMobile) {
+            this.leaderboardText.setScale(0.8)
+        }
     }
     
     private setupObstacles(obstacles: ObstaclesType) {
@@ -449,6 +507,36 @@ export class MainScene extends Phaser.Scene {
                 shipImg.setOrigin(0, 0)
                 shipImg.setDisplaySize(150, 335) 
                 shipImg.setDepth(2)
+            }
+        })
+    }
+
+    private setupMobileControls() {
+        if (this.joystickBase || this.joystickThumb) {
+            this.joystickBase?.destroy()
+            this.joystickThumb?.destroy()
+        }
+        const x = 100
+        const y = this.scale.height - 100
+
+        this.joystickBase = this.add.circle(x, y, 60, 0x888888, 0.4)
+            .setScrollFactor(0).setDepth(10000)
+        
+        this.joystickThumb = this.add.circle(x, y, 30, 0xcccccc, 0.8)
+            .setScrollFactor(0).setDepth(10001)
+
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, x, y)
+            if (dist < 80) {
+                this.joystickPointer = pointer
+            }
+        })
+
+        this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+            if (this.joystickPointer === pointer) {
+                this.joystickPointer = undefined
+                this.joystickVector.set(0, 0)
+                this.joystickThumb?.setPosition(x, y)
             }
         })
     }
@@ -571,7 +659,7 @@ export class MainScene extends Phaser.Scene {
                         serverPlayerData.x,
                         serverPlayerData.y
                     )
-                    if (dist > 10) {
+                    if (dist > 50) {
                         this.playerContainer.x = Phaser.Math.Linear(this.playerContainer.x, serverPlayerData.x, 0.1)
                         this.playerContainer.y = Phaser.Math.Linear(this.playerContainer.y, serverPlayerData.y, 0.1)
                     }
@@ -625,7 +713,7 @@ export class MainScene extends Phaser.Scene {
 
             if (data.isAdmin) {
                 this.isAdmin = true
-                this.showAdminUI(MAP_SIZE, MAP_MARGIN)
+                this.showAdminUI(this.currentMapSize, this.MAP_MARGIN)
                 this.adminUIApplied = true
             }
         })

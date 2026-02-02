@@ -240,35 +240,20 @@ const updatePlayerPhysics = () => {
         if (!input || (player as Bot)?.isBot) return
 
         player.angle = input.angle
-
         const moveStep = PLAYER_SPEED / TICK_RATE
 
-        let vx = 0
-        let vy = 0
+        const vx = input.vx * moveStep
+        const vy = input.vy * moveStep
 
-        if (input.up)    vy -= moveStep
-        if (input.down)  vy += moveStep
-        if (input.left)  vx -= moveStep
-        if (input.right) vx += moveStep
+        const nextX = Math.max(PLAYER_RADIUS, Math.min(WORLD_WIDTH - PLAYER_RADIUS, player.x + vx))
+        const nextY = Math.max(PLAYER_RADIUS, Math.min(WORLD_HEIGHT - PLAYER_RADIUS, player.y + vy))
 
-        if (vx !== 0 && vy !== 0) {
-            const factor = 1 / Math.sqrt(2)
-            vx *= factor
-            vy *= factor
-        }
-
-        const nextX = Math.max(0, Math.min(WORLD_WIDTH, player.x + vx))
-        const nextY = Math.max(0, Math.min(WORLD_HEIGHT, player.y + vy))
-
-        const isColliding = checkCollision(nextX, nextY)
-
-        if (!isColliding) {
+        if (!checkCollision(nextX, nextY)) {
             player.x = nextX
             player.y = nextY
             player.vx = vx
             player.vy = vy
-        }
-        else {
+        } else {
             player.vx = 0
             player.vy = 0
         }
