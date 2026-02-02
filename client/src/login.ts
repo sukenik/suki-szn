@@ -36,6 +36,9 @@ const config: Phaser.Types.Core.GameConfig = {
 
 async function startApp() {
     let gameInstance: Phaser.Game | null = null
+    const serverUrl = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000'
+
+    fetch(`${serverUrl}/health`).catch(() => {})
 
     const loginScreen = document.getElementById('ui-layer')
     const loginBtn = document.getElementById('login-button')
@@ -86,8 +89,6 @@ async function startApp() {
 
     const handleUserConnected = async (user: any) => {
         const token = await user.getIdToken()
-
-        const serverUrl = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000'
 
         const socket = io(serverUrl, {
             auth: { token },
