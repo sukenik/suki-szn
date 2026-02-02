@@ -28,6 +28,7 @@ export class MainScene extends Phaser.Scene {
     private isMobile: boolean = false
     private currentMapSize: number = 200
     private readonly MAP_MARGIN: number = 15
+    private readonly JOYSTICK_RADIUS: number = 80
     private joystickVector: Phaser.Math.Vector2 = new Phaser.Math.Vector2(0, 0)
     private adminAddBtn?: Phaser.GameObjects.Text
     private adminRemoveBtn?: Phaser.GameObjects.Text
@@ -449,7 +450,7 @@ export class MainScene extends Phaser.Scene {
             this.minimap.setPosition(x, y)
             this.minimap.setSize(mapSize, mapSize)
 
-            const zoom = mapSize / GAME_SETTINGS.WORLD_WIDTH;
+            const zoom = mapSize / GAME_SETTINGS.WORLD_WIDTH
             this.minimap.setZoom(zoom)
         }
 
@@ -464,7 +465,19 @@ export class MainScene extends Phaser.Scene {
         if (this.input.keyboard) {
             this.cursors = this.input.keyboard.createCursorKeys()
         }
-        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.shoot(pointer))
+        this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (this.joystickBase) {
+                const distToJoystick = Phaser.Math.Distance.Between(
+                    pointer.x, pointer.y, this.joystickBase.x, this.joystickBase.y
+                )
+
+                if (distToJoystick < this.JOYSTICK_RADIUS) {
+                    return
+                }
+            }
+
+            this.shoot(pointer)
+        })
     }
 
     private setupLeaderboard = () => {
@@ -527,7 +540,7 @@ export class MainScene extends Phaser.Scene {
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, x, y)
-            if (dist < 80) {
+            if (dist < this.JOYSTICK_RADIUS) {
                 this.joystickPointer = pointer
             }
         })
@@ -539,6 +552,10 @@ export class MainScene extends Phaser.Scene {
                 this.joystickThumb?.setPosition(x, y)
             }
         })
+        
+        if (this.minimap) {
+            this.minimap.ignore([this.joystickBase, this.joystickThumb])
+        }
     }
 
     private checkCollision = (nx: number, ny: number): boolean => {
