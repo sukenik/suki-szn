@@ -430,6 +430,20 @@ io.on('connection', async (socket) => {
         const decodedToken = await admin.auth().verifyIdToken(token)
         const userId = decodedToken.uid
 
+        const existingPlayer = Object.values(players).find(p => p.firebaseId === userId)
+
+        if (existingPlayer) {
+            console.log(`Found existing player for UID ${decodedToken.uid}, kicking old socket...`)
+            const oldSocket = io.sockets.sockets.get(existingPlayer.id)
+
+            if (oldSocket) {
+                oldSocket.disconnect(true)
+            }
+
+            delete players[existingPlayer.id]
+            io.emit(GAME_EVENTS.PLAYER_LEFT, existingPlayer.id)
+        }
+
         let { data: user, error } = await supabase
             .from('users')
             .select('*')

@@ -352,6 +352,10 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupGroups = () => {
+        if (this.otherPlayers) {
+            this.otherPlayers.clear(true, true)
+        }
+
         this.otherPlayers = this.add.group()
         this.bullets = this.physics.add.group()
         this.heals = this.physics.add.group()
@@ -655,7 +659,8 @@ export class MainScene extends Phaser.Scene {
             Object.keys(players).forEach((id) => {
                 if (id === this.socket.id) {
                     this.addMainPlayer(players[id])
-                } else {
+                }
+                else {
                     this.addOtherPlayer(players[id])
                 }
             })
