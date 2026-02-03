@@ -76,6 +76,8 @@ export class MainScene extends Phaser.Scene {
         this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
             const { width, height } = gameSize
 
+            this.cameras.main.setViewport(0, 0, width, height)
+
             this.updateMinimapLayout(this.currentMapSize, this.MAP_MARGIN)
             this.setupMobileControls()
 
@@ -89,6 +91,12 @@ export class MainScene extends Phaser.Scene {
                 this.adminAddBtn.setX(this.scale.width - margin)
                 this.adminRemoveBtn.setX(this.scale.width - margin)
             }
+        })
+
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                this.scale.resize(window.innerWidth, window.innerHeight)
+            }, 500)
         })
 
         const MAX_ADMIN_ATTEMPTS = 10
