@@ -11,6 +11,13 @@ body, html {
     color: white;
 }
 
+#game-container {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+}
+
 #ui-layer {
     position: absolute;
     top: 0;
@@ -143,3 +150,33 @@ body, html {
 .password-toggle:hover {
     opacity: 1;
 }
+
+#server-status {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+    font-size: 14px;
+    color: #ff9100;
+}
+
+#error {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+    font-size: 14px;
+}
+
+#spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 204, 0, 0.3);
+    border-radius: 50%;
+    border-top-color: #ff9100;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
