@@ -12,6 +12,11 @@ import { Bot } from './logic/Bot'
 import { GridManager } from './logic/GridManager'
 
 const app = express()
+
+app.get('/health', (_, res) => {
+    res.status(200).send('OK')
+})
+
 const httpServer = createServer(app)
 const io = new Server(httpServer, {
     cors: {
