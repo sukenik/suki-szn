@@ -15,10 +15,7 @@ const config: Phaser.Types.Core.GameConfig = {
         autoCenter: Phaser.Scale.CENTER_BOTH,
         parent: 'game-container',
         width: '100%',
-        height: '100%',
-        // TODO: test
-        autoRound: true,
-        fullscreenTarget: 'game-container'
+        height: '100%'
     },
     physics: {
         default: 'arcade',
@@ -78,7 +75,7 @@ async function startApp() {
         }
     }
 
-    !isServerUp && showStatus('📡 Contacting command center...')
+    !isServerUp && showStatus('📡 Waking up server (may take up to 60s)...')
 
     const fetchInterval = setInterval(() => {
         fetch(`${serverUrl}/health`, { mode: 'no-cors' })
@@ -172,6 +169,14 @@ async function startApp() {
                 const game = new Phaser.Game(config)
                 game.registry.set('socket', socket)
                 loginScreen?.remove()
+
+                // TODO: Test
+                window.addEventListener('resize', () => {
+                    if (gameInstance) {
+                        const game = gameInstance as any
+                        game.scale.resize(window.innerWidth, window.innerHeight)
+                    }
+                })
             }
         })
     }
