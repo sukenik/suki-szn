@@ -758,10 +758,14 @@ export class MainScene extends Phaser.Scene {
             data.forEach((player, index) => {
                 const name = player.username || 'Unknown'
                 const score = player.high_score || 0
+                const rank = `${index + 1}.`
 
-                const rank = `${index + 1}.`.padEnd(3)
-                text += `${rank} ${name.padEnd(20)} ${score}\n`
+                const formattedName = (name.length > 15 ? `${name.substring(0, 15)}...` : name).padEnd(15)
+                const formattedScore = score.toString().padStart(3)
+
+                text += `${rank.padEnd(4)}${formattedName}\u200E ${formattedScore}\n`
             })
+
             this.leaderboardText.setText(text)
         })
 
