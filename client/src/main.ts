@@ -16,7 +16,9 @@ export class MainScene extends Phaser.Scene {
     private otherPlayers!: Phaser.GameObjects.Group
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
     private bullets!: Phaser.Physics.Arcade.Group
-    private leaderboardText!: Phaser.GameObjects.Text
+    private rankColumn!: Phaser.GameObjects.Text
+    private nameColumn!: Phaser.GameObjects.Text
+    private scoreColumn!: Phaser.GameObjects.Text
     private starfield!: Phaser.GameObjects.TileSprite
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
@@ -493,18 +495,39 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupLeaderboard = () => {
-        this.leaderboardText = this.add.text(10, 10, ' Loading Leaderboard...', {
-            fontSize: '18px',
-            fontFamily: 'Courier, monospace',
+        const style = {
+            fontFamily: 'Arial, sans-serif', 
+            fontSize: this.isMobile ? '14px' : '18px', 
             color: '#ffffff',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            padding: { x: 10, y: 5 }
-        }).setScrollFactor(0).setDepth(1000)
-        
-        if (this.minimap) this.minimap.ignore(this.leaderboardText)
+            stroke: '#000000',
+            strokeThickness: 3
+        }
 
-        if (this.isMobile) {
-            this.leaderboardText.setScale(0.8)
+        const bg = this.add.graphics().setScrollFactor(0).setDepth(999)
+        bg.fillStyle(0x000000, 0.5)
+        bg.fillRoundedRect(
+            10,
+            10,
+            this.isMobile ? 180 : 270,
+            this.isMobile ? 150 : 295,
+            10
+        )
+
+        this.rankColumn = this.add.text(50, 50, '', style)
+        this.nameColumn = this.add.text(80, 50, '', style)
+        this.scoreColumn = this.add.text(250, 50, '', { ...style, align: 'right' }).setOrigin(1, 0)
+        
+        this.rankColumn = this.add.text(20, 20, '', style)
+            .setScrollFactor(0).setDepth(1000)
+
+        this.nameColumn = this.add.text(this.isMobile ? 50 : 60, 20, '', style)
+            .setScrollFactor(0).setDepth(1000)
+        
+        this.scoreColumn = this.add.text(20 + (this.isMobile ? 160 : 250), 20, '', { ...style, align: 'right' })
+            .setOrigin(1, 0).setScrollFactor(0).setDepth(1000)
+
+        if (this.minimap) {
+            this.minimap.ignore([this.rankColumn, this.nameColumn, this.scoreColumn, bg])
         }
     }
     
@@ -753,20 +776,28 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: { username: string, high_score: number }[]) => {
-            let text = '🏆 TOP PILOTS\n\n'
+            let ranks = '🏆\n\n'
+            let names = 'PILOT\n\n'
+            let scores = 'SCORE\n\n'
 
-            data.forEach((player, index) => {
+            const users = this.isMobile ? data.slice(0, 5) : data
+
+            users.forEach((player, index) => {
                 const name = player.username || 'Unknown'
                 const score = player.high_score || 0
-                const rank = `${index + 1}.`
 
-                const formattedName = (name.length > 15 ? `${name.substring(0, 15)}...` : name).padEnd(15)
-                const formattedScore = score.toString().padStart(3)
+                const formattedName = name.length >= 15
+                    ? `${name.substring(0, 15)}...`
+                    : name
 
-                text += `${rank.padEnd(4)}${formattedName}\u200E ${formattedScore}\n`
+                ranks += `${index + 1}.\n`
+                names += `\u200E${formattedName}\n`
+                scores += `${score.toLocaleString()}\n`
             })
 
-            this.leaderboardText.setText(text)
+            this.rankColumn.setText(ranks)
+            this.nameColumn.setText(names)
+            this.scoreColumn.setText(scores)
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_LEFT, (playerId: string) => {
