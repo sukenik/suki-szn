@@ -12,8 +12,8 @@ const config: Phaser.Types.Core.GameConfig = {
     },
     scale: {
         mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
         parent: 'game-container',
+        autoCenter: Phaser.Scale.CENTER_BOTH,
         width: '100%',
         height: '100%'
     },
@@ -169,14 +169,6 @@ async function startApp() {
                 const game = new Phaser.Game(config)
                 game.registry.set('socket', socket)
                 loginScreen?.remove()
-
-                // TODO: Test
-                window.addEventListener('resize', () => {
-                    if (gameInstance) {
-                        const game = gameInstance as any
-                        game.scale.resize(window.innerWidth, window.innerHeight)
-                    }
-                })
             }
         })
     }
