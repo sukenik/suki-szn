@@ -1,48 +1,17 @@
 import type { FirebaseError } from 'firebase/app'
 import { onAuthStateChanged } from 'firebase/auth'
-import { io } from 'socket.io-client'
-import { auth, loginEmail, loginWithGoogle, registerEmail } from './firebase'
+import { GAME_MODE } from '../../../../shared/consts'
+import { appConfig } from '../../config'
+import { auth, loginEmail, loginWithGoogle, registerEmail } from '../../firebase'
 import { getError } from './logic'
-import { MainScene } from './main'
+import { startGame } from './utils'
 
-const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
-    input: {
-        activePointers: 3
-    },
-    scale: {
-        mode: Phaser.Scale.RESIZE,
-        parent: 'game-container',
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: '100%',
-        height: '100%'
-    },
-    physics: {
-        default: 'arcade',
-        arcade: {
-            gravity: { x: 0, y: 0 },
-            debug: false
-        }
-    },
-    render: {
-        pixelArt: false,
-        antialias: true,
-        roundPixels: false
-    },
-    fps: {
-        target: 60,
-        forceSetTimeOut: true
-    },
-    scene: MainScene
-}
+const { serverUrl } = appConfig
 
 async function startApp() {
-    let gameInstance: Phaser.Game | undefined
     let isRegistering = false
     let isAuthenticated = false
     let isServerUp = false
-
-    const serverUrl = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000'
 
     const loginScreen = document.getElementById('ui-layer')
     const loginBtn = document.getElementById('login-button') as HTMLButtonElement
@@ -57,6 +26,9 @@ async function startApp() {
     const spinner = document.getElementById('spinner')
     const errorDiv = document.getElementById('error')
     const errorText = document.getElementById('error-text')
+    const modeSelector = document.getElementById('mode-selector')
+    const multiBtn = document.getElementById('multiplayer-btn')
+    const survivalBtn = document.getElementById('survival-btn')
 
     if (loginScreen) loginScreen.style.display = 'flex'
 
@@ -149,28 +121,37 @@ async function startApp() {
 
     const handleUserConnected = async (user: any) => {
         isAuthenticated = true
-        const token = await user.getIdToken()
-        
+
         if (spinner) spinner.style.borderTopColor = '#00ff55'
         if (statusText) statusText.style.color = '#00ff55'
         if (errorDiv) errorDiv.style.display = 'none'
 
         !isServerUp && showStatus(`✅ You're authenticated - waiting for server...`)
 
-        const socket = io(serverUrl, {
-            auth: { token },
-            transports: ['websocket'],
-            reconnectionAttempts: 10,
-            timeout: 20000
-        })
+        loginScreen?.remove()
+        
+        const urlParams = new URLSearchParams(window.location.search)
+        const existingRoom = urlParams.get('room')
 
-        socket.on('connect', () => {
-            if (!gameInstance) {
-                const game = new Phaser.Game(config)
-                game.registry.set('socket', socket)
-                loginScreen?.remove()
+        if (existingRoom) {
+            showStatus('Joining survival room...')
+            startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
+        }
+        else {
+            if (modeSelector) {
+                modeSelector.style.display = 'flex'
+    
+                multiBtn?.addEventListener('click', () => {
+                    modeSelector.style.display = 'none'
+                    startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom)
+                })
+        
+                survivalBtn?.addEventListener('click', () => {
+                    modeSelector.style.display = 'none'
+                    startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
+                })
             }
-        })
+        }      
     }
 
     onAuthStateChanged(auth, (user) => {

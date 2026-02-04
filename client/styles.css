@@ -181,3 +181,97 @@ html, body, #game-container, canvas {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.mode-options {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+}
+
+.login-btn span {
+    display: block;
+    font-size: 12px;
+    opacity: 0.7;
+    font-weight: normal;
+}
+
+#survival-lobby, #error-screen, #mode-selector {
+    position: fixed;
+    inset: 0;
+    background: url('assets/stars.png') repeat;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.mode-selector-card {
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid #00f2ff;
+    border-radius: 15px;
+    padding: 30px;
+    width: 400px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+}
+
+.lobby-card {
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid #00f2ff;
+    border-radius: 15px;
+    padding: 30px;
+    width: 400px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+}
+
+#player-list-start-row {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+}
+
+#player-list {
+    margin: 10px 0;
+}
+
+.player-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #333;
+}
+
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 59px;
+}
+
+.status-ready { background: #2ecc71; color: white; }
+.status-not-ready { background: #e74c3c; color: white; }
+
+.ready-btn, .back-to-menu-btn {
+    margin-top: 20px;
+    padding: 15px 40px;
+    font-weight: bold;
+    cursor: pointer;
+    border: none;
+    border-radius: 5px;
+    min-width: 200px;
+}
+
+.ready-btn.ready { background: #2ecc71; }
+.ready-btn.not-ready { background: #e74c3c; }
+
+.back-to-menu-btn {
+    background: black;
+    color: white;
+    border: 1px solid white;
+}
+
+.timer-visible { color: #f1c40f; font-size: 24px; margin: 15px 0; display: block; }
+.timer-hidden { display: none; }

@@ -27,9 +27,30 @@ export const GAME_EVENTS = {
   REQUEST_INITIAL_STATE: 'requestInitialState',
   INITIAL_OBSTACLES: 'initialObstacles',
   ADMIN_ADD_BOT: 'adminAddBot',
+  CREATE_SURVIVAL: 'createSurvival',
+  ROOM_CREATED: 'roomCreated',
+  TOGGLE_READY: 'toggleReady',
+  ROOM_UPDATE: 'roomUpdate',
+  GAME_START: 'gameStart',
+  STARTING_COUNTDOWN: 'startingCountdown',
+  STOP_COUNTDOWN: 'stopCountdown',
+  JOIN_SURVIVAL: 'joinSurvival',
+  ROOM_JOINED: 'roomJoined',
+  // TODO: remove
   ADMIN_REMOVE_BOT: 'adminRemoveBot',
   REQUEST_IS_ADMIN: 'requestIsAdmin',
   IS_ADMIN: 'isAdmin',
+  //
 } as const
 
-export type GameEventType = typeof GAME_EVENTS[keyof typeof GAME_EVENTS]
+export const GAME_MODE = {
+  SURVIVAL: 'survival',
+  MULTIPLAYER: 'multiplayer',
+}
+
+export type GameModeType = typeof GAME_MODE[keyof typeof GAME_MODE]
+
+export const GAME_ERRORS = {
+  ROOM_NOT_FOUND: 'roomNotFound',
+  GAME_IN_PROGRESS: 'gameInProgress',
+}
