@@ -111,6 +111,7 @@ export class MainScene extends Phaser.Scene {
                 adminAttempts++
 
                 if (this.socket.connected) {
+                    // TODO: Remove
                     this.socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
                 }
 
