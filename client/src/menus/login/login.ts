@@ -151,7 +151,7 @@ async function startApp() {
                     startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
                 })
             }
-        }      
+        }  
     }
 
     onAuthStateChanged(auth, (user) => {

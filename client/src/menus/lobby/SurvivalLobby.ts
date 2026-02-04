@@ -47,7 +47,6 @@ export class SurvivalLobby {
                 ? `If you're ready`
                 : 'Not ready?'
             readyHelpText.innerText += ' press the button ⬇️'
-
         }
 
         this.socket.on(GAME_EVENTS.ROOM_UPDATE, (data) => {
