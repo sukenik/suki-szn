@@ -198,7 +198,7 @@ html, body, #game-container, canvas {
 #survival-lobby, #error-screen, #mode-selector {
     position: fixed;
     inset: 0;
-    background: url('assets/stars.png') repeat;
+    background: url('/assets/stars.png') repeat;
     display: flex;
     justify-content: center;
     align-items: center;
