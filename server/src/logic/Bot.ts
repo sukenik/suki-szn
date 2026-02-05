@@ -6,6 +6,7 @@ import { iBullet, iHealPack, iPlayer } from '../../../shared/types'
 import { MODEL_FILE_NAME } from '../consts'
 import { AStarPathfinder } from './AStarPathfinder'
 import { GridManager, iGridNode } from './GridManager'
+import { survivalRooms } from '../room'
 
 enum BotState {
     CHASE,
@@ -13,10 +14,12 @@ enum BotState {
     EVADE
 }
 
-type ShootCallback = (bulletData: iBullet) => void
-type RecordCallback = (bulletData: iBullet, target: iPlayer) => void
+export type ShootCallback = (bulletData: iBullet) => void
+export type RecordCallback = (bulletData: iBullet, target: iPlayer) => void
 
-const { PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED, ANGLE_OFFSET } = GAME_SETTINGS
+const {
+    PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED, ANGLE_OFFSET
+} = GAME_SETTINGS
 
 export class Bot implements iPlayer {
     public id: string
@@ -29,8 +32,9 @@ export class Bot implements iPlayer {
     public name: string
     public kills: number = 0
     public firebaseId: string = 'bot-system'
-    
     public isBot: boolean = true
+    public roomId: string | null = null
+
     private lastPathCalc: number = 0
     private currentPath: iGridNode[] = []
     private pathfinder: AStarPathfinder
@@ -106,15 +110,29 @@ export class Bot implements iPlayer {
         }
     }
 
+    public setRoomId(roomId: string) {
+        this.roomId = roomId
+    }
+
     private findClosestTarget(players: { [id: string]: iPlayer }): iPlayer | null {
         let closest: iPlayer | null = null
         let minDist = Infinity
 
-        for (const id in players) {
-            const p = players[id]
+        const allPlayersArray = Object.values(players)
 
-            if (p.id === this.id) continue
+        const validTargets = allPlayersArray.filter(p => {
+            if (p.id === this.id) return false
+            if ((p as Bot)?.isBot) return false
 
+            if (this.roomId) {
+                const room = survivalRooms.get(this.roomId)
+                return room?.players.includes(p.id)
+            }
+
+            return true
+        })
+
+        for (const p of validTargets) {
             const dist = Math.hypot(this.x - p.x, this.y - p.y)
 
             if (dist < minDist) {
@@ -122,6 +140,7 @@ export class Bot implements iPlayer {
                 closest = p
             }
         }
+
         return closest
     }
 
@@ -232,7 +251,7 @@ export class Bot implements iPlayer {
         const predictedAngleRad = Math.atan2(dy, dx)
 
         const bulletData: iBullet = {
-            id: `bullet-bot-${Math.random().toString(36).substr(2, 5)}`,
+            id: `bullet-bot-${Math.random().toString(36).substring(2, 5)}`,
             playerId: this.id,
             x: this.x,
             y: this.y,

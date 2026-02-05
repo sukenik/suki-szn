@@ -273,5 +273,5 @@ html, body, #game-container, canvas {
     border: 1px solid white;
 }
 
-.timer-visible { color: #f1c40f; font-size: 24px; margin: 15px 0; display: block; }
+.timer-visible { color: #2ecc71; font-size: 24px; margin: 15px 0; display: block; }
 .timer-hidden { display: none; }

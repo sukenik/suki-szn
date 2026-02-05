@@ -36,6 +36,7 @@ export const GAME_EVENTS = {
   STOP_COUNTDOWN: 'stopCountdown',
   JOIN_SURVIVAL: 'joinSurvival',
   ROOM_JOINED: 'roomJoined',
+  WAVE_STARTED: 'waveStarted',
   // TODO: remove
   ADMIN_REMOVE_BOT: 'adminRemoveBot',
   REQUEST_IS_ADMIN: 'requestIsAdmin',
