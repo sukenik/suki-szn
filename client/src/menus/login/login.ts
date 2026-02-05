@@ -55,6 +55,7 @@ async function startApp() {
                 isServerUp = true
 
                 if (isAuthenticated) {
+                    handleUserConnected(auth.currentUser)
                     showStatus(`🔥 Server is up - let's go!`)
                 }
                 else {
@@ -128,30 +129,32 @@ async function startApp() {
 
         !isServerUp && showStatus(`✅ You're authenticated - waiting for server...`)
 
-        loginScreen?.remove()
-        
-        const urlParams = new URLSearchParams(window.location.search)
-        const existingRoom = urlParams.get('room')
-
-        if (existingRoom) {
-            showStatus('Joining survival room...')
-            startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
-        }
-        else {
-            if (modeSelector) {
-                modeSelector.style.display = 'flex'
+        if (isServerUp) {
+            loginScreen?.remove()
+            
+            const urlParams = new URLSearchParams(window.location.search)
+            const existingRoom = urlParams.get('room')
     
-                multiBtn?.addEventListener('click', () => {
-                    modeSelector.style.display = 'none'
-                    startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom)
-                })
-        
-                survivalBtn?.addEventListener('click', () => {
-                    modeSelector.style.display = 'none'
-                    startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
-                })
+            if (existingRoom) {
+                showStatus('Joining survival room...')
+                startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
             }
-        }  
+            else {
+                if (modeSelector) {
+                    modeSelector.style.display = 'flex'
+        
+                    multiBtn?.addEventListener('click', () => {
+                        modeSelector.style.display = 'none'
+                        startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom)
+                    })
+            
+                    survivalBtn?.addEventListener('click', () => {
+                        modeSelector.style.display = 'none'
+                        startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
+                    })
+                }
+            }
+        }
     }
 
     onAuthStateChanged(auth, (user) => {

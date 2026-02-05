@@ -45,6 +45,7 @@ export interface iServerUpdateData {
     bullets: iBullet[]
     heals: iHealPack[]
     obstacles: ObstaclesType
+    wave?: number
 }
 
 interface iBaseObstacle {
