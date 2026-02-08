@@ -1,13 +1,13 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
-import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdateReturnType, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
 const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
-    TICK_RATE, PLAYER_RADIUS, BULLET_SPEED, ANGLE_OFFSET
+    PLAYER_RADIUS, BULLET_SPEED, ANGLE_OFFSET
 } = GAME_SETTINGS
 
 export class MainScene extends Phaser.Scene {
@@ -23,20 +23,27 @@ export class MainScene extends Phaser.Scene {
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
-    private adminCheckInterval!: Phaser.Time.TimerEvent
+
     private obstacles: ObstaclesType = []
-    private isAdmin: boolean = false
-    private adminUIApplied: boolean = false
     private isMobile: boolean = false
     private currentMapSize: number = 200
     private readonly MAP_MARGIN: number = 15
     private readonly JOYSTICK_RADIUS: number = 80
     private joystickVector: Phaser.Math.Vector2 = new Phaser.Math.Vector2(0, 0)
-    private adminAddBtn?: Phaser.GameObjects.Text
-    private adminRemoveBtn?: Phaser.GameObjects.Text
+    private isDead: boolean = false
+    private spectatorIndex: number = 0
+    private isSurvival = false
+
     private joystickBase?: Phaser.GameObjects.Arc
     private joystickThumb?: Phaser.GameObjects.Arc
     private joystickPointer?: Phaser.Input.Pointer
+    private deathOverlay?: Phaser.GameObjects.Rectangle
+    private deathText?: Phaser.GameObjects.Text
+    private respawnTimerText?: Phaser.GameObjects.Text
+    private specLeftBtn?: Phaser.GameObjects.Text
+    private specRightBtn?: Phaser.GameObjects.Text
+    private spectatorNameText?: Phaser.GameObjects.Text
+    private waveTextDisplay?: Phaser.GameObjects.Text
 
     constructor() {
         super('MainScene')
@@ -66,7 +73,7 @@ export class MainScene extends Phaser.Scene {
         this.setupLeaderboard()
 
         this.events.on('postupdate', () => {
-            if (this.playerContainer) {
+            if (this.playerContainer && !this.isDead) {
                 const targetX = this.playerContainer.x - this.cameras.main.width / 2
                 const targetY = this.playerContainer.y - this.cameras.main.height / 2
                 
@@ -86,40 +93,12 @@ export class MainScene extends Phaser.Scene {
             if (this.starfield) {
                 this.starfield.setSize(width, height)
             }
-
-            if (this.adminAddBtn && this.adminRemoveBtn) {
-                const margin = this.isMobile ? 140 : 200
-
-                this.adminAddBtn.setX(this.scale.width - margin)
-                this.adminRemoveBtn.setX(this.scale.width - margin)
-            }
         })
 
         window.addEventListener('orientationchange', () => {
             setTimeout(() => {
                 this.scale.resize(window.innerWidth, window.innerHeight)
             }, 500)
-        })
-
-        const MAX_ADMIN_ATTEMPTS = 10
-        let adminAttempts = 0
-
-        this.adminCheckInterval = this.time.addEvent({
-            delay: 1000,
-            loop: true,
-            callback: () => {
-                adminAttempts++
-
-                if (this.socket.connected) {
-                    // TODO: Remove
-                    this.socket.emit(GAME_EVENTS.REQUEST_IS_ADMIN)
-                }
-
-                if (adminAttempts >= MAX_ADMIN_ATTEMPTS) {
-                    console.warn('🚩 Reached max admin check attempts. Stopping.')
-                    this.adminCheckInterval.remove()
-                }
-            }
         })
 
         const attemptRequest = () => {
@@ -142,7 +121,7 @@ export class MainScene extends Phaser.Scene {
     addMainPlayer(playerInfo: iPlayer) {
         if (this.playerContainer) this.playerContainer.destroy()
 
-        const container = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, true)
+        const container = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, true, this.isSurvival)
         this.playerContainer = container
 
         this.physics.world.enable(container)
@@ -157,7 +136,9 @@ export class MainScene extends Phaser.Scene {
     }
 
     addOtherPlayer(playerInfo: iPlayer) {
-        const otherPlayer = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, false)
+        if (!playerInfo) return
+
+        const otherPlayer = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, false, this.isSurvival)
 
         this.physics.world.enable(otherPlayer)
 
@@ -174,15 +155,19 @@ export class MainScene extends Phaser.Scene {
         this.otherPlayers.add(otherPlayer)
     }
 
-    update() {
-        if (this.isAdmin && !this.adminUIApplied) {
-            this.showAdminUI(this.currentMapSize, this.MAP_MARGIN)
-            this.adminUIApplied = true
-        }
+    update(_: number, delta: number) {
+        const dt = delta / 1000
 
         if (this.starfield) {
             this.starfield.tilePositionX = Math.floor(this.cameras.main.scrollX * 0.2)
             this.starfield.tilePositionY = Math.floor(this.cameras.main.scrollY * 0.2)
+        }
+
+        this.updateOtherPlayersRendering()
+
+        if (this.isDead) {
+            this.updateSpectatorCamera()
+            return
         }
 
         if (!this.playerContainer || !this.cursors) return
@@ -235,10 +220,11 @@ export class MainScene extends Phaser.Scene {
             shoot: false
         } as iPlayerInputs
 
-        const moveStep = PLAYER_SPEED / TICK_RATE
+        const moveStepX = vx * PLAYER_SPEED * dt
+        const moveStepY = vy * PLAYER_SPEED * dt
 
-        let nextX = this.playerContainer.x + (vx * moveStep)
-        let nextY = this.playerContainer.y + (vy * moveStep)
+        let nextX = this.playerContainer.x + moveStepX
+        let nextY = this.playerContainer.y + moveStepY
 
         nextX = Phaser.Math.Clamp(nextX, PLAYER_RADIUS, WORLD_WIDTH - PLAYER_RADIUS)
         nextY = Phaser.Math.Clamp(nextY, PLAYER_RADIUS, WORLD_HEIGHT - PLAYER_RADIUS)
@@ -255,41 +241,12 @@ export class MainScene extends Phaser.Scene {
         if (isMoving) {
             this.playerContainer.updateEmitter()
             if (!this.playerContainer.emitter.emitting) this.playerContainer.emitter.start()
-        } else {
+        }
+        else {
             this.playerContainer.emitter.stop()
         }
 
         this.playerContainer.redrawHealthBar()
-
-        this.otherPlayers.getChildren().forEach(obj => {
-            const otherPlayer = obj as SpaceShip
-
-            if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
-                otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
-                otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
-
-                if (otherPlayer.targetRotation !== undefined) {
-                    const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
-                    
-                    otherPlayer.ship.rotation = Phaser.Math.Angle.RotateTo(
-                        otherPlayer.ship.rotation, 
-                        targetRad, 
-                        0.15
-                    )
-                }
-
-                const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
-                
-                if (distanceMoved > 0.5) {
-                    otherPlayer.updateEmitter()
-                    if (!otherPlayer.emitter.emitting) otherPlayer.emitter.start()
-                } else {
-                    otherPlayer.emitter.stop()
-                }
-            }
-
-            otherPlayer.redrawHealthBar()
-        })
 
         this.bullets.getChildren().forEach(bulletObj => {
             const bullet = bulletObj as iBulletSprite
@@ -307,6 +264,7 @@ export class MainScene extends Phaser.Scene {
             !this.playerContainer
             || !this.socket.id
             || pointer === this.joystickPointer
+            || this.isDead
         ) {
             return
         }
@@ -409,54 +367,6 @@ export class MainScene extends Phaser.Scene {
         if (this.starfield) this.minimap.ignore(this.starfield)
     }
 
-    private showAdminUI = (mapSize: number, margin: number) => {
-        if (this.adminAddBtn) this.adminAddBtn.destroy()
-        if (this.adminRemoveBtn) this.adminRemoveBtn.destroy()
-
-        const startX = this.scale.width - (this.isMobile ? 140 : 200)
-        const startY = mapSize + margin + 20
-
-        this.adminAddBtn = this.add.text(startX, startY, ' [+] ADD BOT ', { 
-            fontSize: this.isMobile ? '14px' : '18px',
-            fontFamily: 'Arial',
-            color: '#00ff00',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            padding: { x: 8, y: 5 }
-        })
-        .setInteractive({ useHandCursor: true })
-        .setScrollFactor(0)
-        .setDepth(9999)
-
-        this.adminRemoveBtn = this.add.text(startX, startY + 35, ' [-] REMOVE BOT ', { 
-            fontSize: this.isMobile ? '14px' : '18px',
-            fontFamily: 'Arial',
-            color: '#ff0000',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            padding: { x: 8, y: 5 }
-        })
-        .setInteractive({ useHandCursor: true })
-        .setScrollFactor(0)
-        .setDepth(9999);
-
-        [this.adminAddBtn, this.adminRemoveBtn].forEach(btn => {
-            btn.on('pointerover', () => btn.setStyle({ fill: '#ffffff' }))
-            btn.on('pointerout', () => btn.setStyle({ fill: btn === this.adminAddBtn ? '#00ff00' : '#ff0000' }))
-        })
-
-        this.adminAddBtn.on('pointerdown', (_: Phaser.Input.Pointer, _2: number, _3: number, event: Phaser.Types.Input.EventData) => {
-            this.socket.emit(GAME_EVENTS.ADMIN_ADD_BOT)
-            event.stopPropagation()
-        })
-        this.adminRemoveBtn.on('pointerdown', (_: Phaser.Input.Pointer, _2: number, _3: number, event: Phaser.Types.Input.EventData) => {
-            this.socket.emit(GAME_EVENTS.ADMIN_REMOVE_BOT)
-            event.stopPropagation()
-        })
-
-        if (this.minimap) {
-            this.minimap.ignore([this.adminAddBtn, this.adminRemoveBtn])
-        }
-    }
-
     private updateMinimapLayout = (mapSize: number, margin: number) => {
         const x = this.scale.width - mapSize - margin
         const y = margin
@@ -510,25 +420,28 @@ export class MainScene extends Phaser.Scene {
             10,
             10,
             this.isMobile ? 180 : 270,
-            this.isMobile ? 150 : 295,
+            this.isMobile ? 180 : 220,
             10
         )
 
-        this.rankColumn = this.add.text(50, 50, '', style)
-        this.nameColumn = this.add.text(80, 50, '', style)
-        this.scoreColumn = this.add.text(250, 50, '', { ...style, align: 'right' }).setOrigin(1, 0)
-        
-        this.rankColumn = this.add.text(20, 20, '', style)
+        this.waveTextDisplay = this.add.text(
+            20, 20, 'WAVE: 1',
+            { ...style, color: '#ff0000', fontSize: this.isMobile ? '16px' : '20px' }
+        ).setScrollFactor(0).setDepth(1000)
+
+        const tableTop = 50
+
+        this.rankColumn = this.add.text(20, tableTop, '', style)
             .setScrollFactor(0).setDepth(1000)
 
-        this.nameColumn = this.add.text(this.isMobile ? 50 : 60, 20, '', style)
+        this.nameColumn = this.add.text(this.isMobile ? 50 : 60, tableTop, '', style)
             .setScrollFactor(0).setDepth(1000)
-        
-        this.scoreColumn = this.add.text(20 + (this.isMobile ? 160 : 250), 20, '', { ...style, align: 'right' })
+
+        this.scoreColumn = this.add.text(20 + (this.isMobile ? 160 : 250), tableTop, '', { ...style, align: 'right' })
             .setOrigin(1, 0).setScrollFactor(0).setDepth(1000)
 
         if (this.minimap) {
-            this.minimap.ignore([this.rankColumn, this.nameColumn, this.scoreColumn, bg])
+            this.minimap.ignore([this.rankColumn, this.nameColumn, this.scoreColumn, bg, this.waveTextDisplay])
         }
     }
     
@@ -588,7 +501,7 @@ export class MainScene extends Phaser.Scene {
                 this.joystickThumb?.setPosition(x, y)
             }
         })
-        
+
         if (this.minimap) {
             this.minimap.ignore([this.joystickBase, this.joystickThumb])
         }
@@ -703,7 +616,19 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.SERVER_UPDATE, (data: iServerUpdateData) => {
-            Object.keys(data.players).forEach(id => {
+            if (data.wave) this.isSurvival = true
+
+            const serverIds = new Set(Object.keys(data.players))
+
+            this.otherPlayers.getChildren().forEach(obj => {
+                const otherPlayer = obj as SpaceShip
+
+                if (!serverIds.has(otherPlayer.playerId)) {
+                    otherPlayer.destroy()
+                }
+            })
+
+            serverIds.forEach(id => {
                 const serverPlayerData = data.players[id]
 
                 if (id === this.socket.id && this.playerContainer) {
@@ -713,15 +638,19 @@ export class MainScene extends Phaser.Scene {
                         serverPlayerData.x,
                         serverPlayerData.y
                     )
-                    if (dist > 50) {
+                    if (dist < 100) {
                         this.playerContainer.x = Phaser.Math.Linear(this.playerContainer.x, serverPlayerData.x, 0.1)
                         this.playerContainer.y = Phaser.Math.Linear(this.playerContainer.y, serverPlayerData.y, 0.1)
+                    }
+                    else {
+                        this.playerContainer.x = serverPlayerData.x
+                        this.playerContainer.y = serverPlayerData.y
                     }
 
                     this.playerContainer.hp = serverPlayerData.hp
                     this.playerContainer.redrawHealthBar()
                 } 
-                else {
+                else if (id !== this.socket.id) {
                     let otherPlayer: SpaceShip | undefined
                     this.otherPlayers.getChildren().forEach(obj => {
                         const p = obj as SpaceShip
@@ -762,26 +691,25 @@ export class MainScene extends Phaser.Scene {
             this.setupObstacles(obstacles)
         })
 
-        this.socket.on(GAME_EVENTS.IS_ADMIN, (data: { isAdmin: boolean }) => {
-            this.adminCheckInterval.remove()
-
-            if (data.isAdmin) {
-                this.isAdmin = true
-                this.showAdminUI(this.currentMapSize, this.MAP_MARGIN)
-                this.adminUIApplied = true
-            }
-        })
-
         this.socket.on(GAME_EVENTS.PLAYER_HIT, (data: { playerId: string, hp: number, bulletId: string }) => {
             this.handlePlayerHit(data)
         })
 
-        this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: { username: string, high_score: number }[]) => {
+        this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: iLeaderboardUpdateReturnType) => {
             let ranks = '🏆\n\n'
             let names = 'PILOT\n\n'
             let scores = 'SCORE\n\n'
 
-            const users = this.isMobile ? data.slice(0, 5) : data
+            const leaderboardData = data.data
+
+            if (data.wave) {
+                this.waveTextDisplay?.setText(`WAVE: ${data.wave}`)
+            }
+            else {
+                this.waveTextDisplay?.setText('🌍 Top 5 Global players:')
+            }
+
+            const users = leaderboardData.slice(0, 5)
 
             users.forEach((player, index) => {
                 const name = player.username || 'Unknown'
@@ -802,13 +730,13 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_LEFT, (playerId: string) => {
-            this.otherPlayers.getChildren().forEach(obj => {
-                const otherPlayer = obj as SpaceShip
+            const playerToRemove = this.otherPlayers.getChildren().find(
+                obj => (obj as SpaceShip).playerId === playerId
+            ) as SpaceShip
 
-                if (playerId === otherPlayer.playerId) {
-                    otherPlayer.destroy()
-                }
-            })
+            if (playerToRemove) {
+                playerToRemove.destroy()
+            }
         })
 
         this.socket.on(GAME_EVENTS.NEW_BULLET, (bulletData: iBullet) => {
@@ -825,7 +753,7 @@ export class MainScene extends Phaser.Scene {
 
             this.createBullet(bulletData)
         })
-        
+
         this.socket.on(GAME_EVENTS.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
             let deadPlayer: SpaceShip | null = null
 
@@ -854,14 +782,95 @@ export class MainScene extends Phaser.Scene {
 
             this.handleBulletHit(data.bulletId)
         })
+
+        this.socket.on(GAME_EVENTS.PLAYER_DIED, (data: { playerId: string, respawnIn: number }) => {
+            if (!this.isSurvival) return
+
+            let targetShip: SpaceShip | null = null
+
+            if (data.playerId === this.socket.id) {
+                targetShip = this.playerContainer
+                this.handleLocalDeath()
+            }
+            else {
+                this.otherPlayers.getChildren().forEach(obj => {
+                    const ship = obj as SpaceShip
+                    if (ship.playerId === data.playerId) targetShip = ship
+                })
+            }
+
+            if (targetShip) {
+                this.createExplosion(targetShip.x, targetShip.y)
+                targetShip.setVisible(false)
+                if (targetShip.emitter) targetShip.emitter.stop()
+            }
+        })
+
+        this.socket.on(GAME_EVENTS.PLAYER_RESPAWN, (data: { playerId: string, x: number, y: number, hp: number }) => {
+            let targetShip: SpaceShip | null = null
+
+            if (data.playerId === this.socket.id) {
+                targetShip = this.playerContainer
+                this.isDead = false
+                this.respawnTimerText?.setVisible(false)
+                this.cleanSpectatorUI()
+            } else {
+                this.otherPlayers.getChildren().forEach(obj => {
+                    const ship = obj as SpaceShip
+                    if (ship.playerId === data.playerId) targetShip = ship
+                })
+            }
+
+            if (targetShip) {
+                targetShip.setPosition(data.x, data.y)
+                targetShip.hp = data.hp
+                targetShip.setAlpha(1)
+                targetShip.setVisible(true)
+                targetShip.redrawHealthBar()
+            }
+        })
+
+        this.socket.on(GAME_EVENTS.WAVE_STARTED, (data: { wave: number, botCount: number }) => {
+            this.showWaveMessage(data.wave)
+        })
+
+        this.socket.on(GAME_EVENTS.GAME_OVER, (data: { username: string, survival_high_score: number }[]) => {
+            this.isDead = false
+            this.isSurvival = false
+
+            this.hideDeathScreen()
+            this.cleanSpectatorUI()
+
+            const errorPage = document.getElementById('error-screen')!
+            const messageTitle = document.getElementById('error-title')!
+            const messageDescription = document.getElementById('error-description')!
+            const listFirstRow = document.getElementById('survival-list-first-row')!
+            const list = document.getElementById('survival-list')!
+
+            listFirstRow.style.display = 'flex'
+            errorPage.style.display = 'flex'
+
+            messageTitle.innerText = '💀 Game Over'
+            messageDescription.innerText = '🌍 Top 5 Global Survival players:'
+            messageDescription.style = 'font-size: 20px'
+
+            list.innerHTML = data.map(p => `
+                <div class='player-row'>
+                    <span>${p.username}</span>
+                    <div style="margin-right: 30px">${p.survival_high_score}</div>
+                </div>
+            `).join('')
+        })
     }
-    
+
     private handlePlayerHit = (data: { playerId: string, hp: number, bulletId: string }) => {
         let targetPlayer: SpaceShip | null = null
+        let isFriendlyColor = false
 
         if (data.playerId === this.socket.id) {
             targetPlayer = this.playerContainer
-        } else {
+        }
+        else {
             this.otherPlayers.getChildren().forEach(obj => {
                 const otherPlayer = obj as SpaceShip
                 if (otherPlayer.playerId === data.playerId) targetPlayer = otherPlayer
@@ -869,6 +878,8 @@ export class MainScene extends Phaser.Scene {
         }
 
         if (targetPlayer) {
+            if (this.isSurvival && !targetPlayer.playerId.includes('Bot')) isFriendlyColor = true
+
             targetPlayer.hp = data.hp
             targetPlayer.redrawHealthBar()
             
@@ -878,12 +889,167 @@ export class MainScene extends Phaser.Scene {
                 if (!targetPlayer) return
                 targetPlayer.playerId === this.socket.id
                     ? targetPlayer.ship.clearTint()
-                    : targetPlayer.ship.setTint(0xff0000)
+                    : isFriendlyColor ? targetPlayer.ship.setTint(0x00aaff) : targetPlayer.ship.setTint(0xff0000)
             })
-            
+
             this.createBulletImpact(targetPlayer.x, targetPlayer.y)
         }
 
         this.handleBulletHit(data.bulletId)
+    }
+
+    private handleLocalDeath() {
+        this.isDead = true
+        this.spectatorIndex = 0
+
+        if (this.playerContainer) {
+            this.playerContainer.setAlpha(0.5)
+        }
+        const centerY = this.scale.height / 2
+
+        this.specLeftBtn = this.add.text(50, centerY, '◀', { fontSize: '48px', color: '#ffffff', backgroundColor: '#00000088', padding: {x:10, y:10} })
+            .setInteractive({ useHandCursor: true })
+            .setScrollFactor(0).setDepth(20002)
+            .on('pointerdown', () => this.changeSpectatorTarget(-1))
+
+        this.specRightBtn = this.add.text(this.scale.width - 100, centerY, '▶', { fontSize: '48px', color: '#ffffff', backgroundColor: '#00000088', padding: {x:10, y:10} })
+            .setInteractive({ useHandCursor: true })
+            .setScrollFactor(0).setDepth(20002)
+            .on('pointerdown', () => this.changeSpectatorTarget(1))
+
+        this.spectatorNameText = this.add.text(this.scale.width / 2, centerY + 150, '', { fontSize: '24px', color: '#00ff00' })
+            .setOrigin(0.5).setScrollFactor(0).setDepth(20002)
+
+            
+        if (this.minimap) {
+            this.minimap.ignore([this.specLeftBtn, this.specRightBtn, this.spectatorNameText])
+        }
+
+        this.updateSpectatorUI()
+    }
+
+    private hideDeathScreen() {
+        this.deathOverlay?.setVisible(false)
+        this.deathText?.setVisible(false)
+        this.respawnTimerText?.setVisible(false)
+    }
+
+    private changeSpectatorTarget(dir: number) {
+        const alivePlayers = this.getAlivePlayers()
+        if (alivePlayers.length === 0) return
+        
+        this.spectatorIndex = (this.spectatorIndex + dir + alivePlayers.length) % alivePlayers.length
+        this.updateSpectatorUI()
+    }
+
+    private updateSpectatorUI() {
+        const alivePlayers = this.getAlivePlayers()
+
+        if (alivePlayers.length > 0) {
+            const target = alivePlayers[this.spectatorIndex % alivePlayers.length]
+            this.spectatorNameText?.setText(`SPECTATING: ${target.nameTag.text}`)
+        }
+        else {
+            this.spectatorNameText?.setText(`WAITING FOR RESPAWN...`)
+        }
+    }
+
+    private getAlivePlayers(): SpaceShip[] {
+        return this.otherPlayers.getChildren().filter(obj => (obj as SpaceShip).visible) as SpaceShip[]
+    }
+
+    private updateSpectatorCamera() {
+        const alivePlayers = this.getAlivePlayers()
+
+        if (alivePlayers.length > 0) {
+            const index = Math.abs(this.spectatorIndex) % alivePlayers.length
+            const target = alivePlayers[index]
+
+            if (target) {
+                const targetX = target.x - this.cameras.main.width / 2
+                const targetY = target.y - this.cameras.main.height / 2
+
+                this.cameras.main.scrollX = Phaser.Math.Linear(this.cameras.main.scrollX, targetX, 0.1)
+                this.cameras.main.scrollY = Phaser.Math.Linear(this.cameras.main.scrollY, targetY, 0.1)
+            }
+        }
+    }
+
+    private showWaveMessage(wave: number) {
+        const text = `WAVE ${wave}\nSTARTED!`
+
+        const waveText = this.add.text(this.scale.width / 2, this.scale.height / 2, text, {
+            fontSize: '80px',
+            color: '#ff0000',
+            fontStyle: 'bold',
+            align: 'center',
+            stroke: '#000000',
+            strokeThickness: 8
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(30000).setAlpha(0)
+
+        this.tweens.add({
+            targets: waveText,
+            alpha: 1,
+            scale: { from: 0.5, to: 1 },
+            duration: 500,
+            ease: 'Back.easeOut',
+            onComplete: () => {
+                this.time.delayedCall(2000, () => {
+                    this.tweens.add({
+                        targets: waveText,
+                        alpha: 0,
+                        y: waveText.y - 100,
+                        duration: 500,
+                        onComplete: () => waveText.destroy()
+                    })
+                })
+            }
+        })
+
+        if (this.minimap) {
+            this.minimap.ignore([waveText])
+        }
+    }
+
+    private updateOtherPlayersRendering() {
+        this.otherPlayers.getChildren().forEach(obj => {
+            const otherPlayer = obj as SpaceShip
+
+            if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
+                otherPlayer.x = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, 0.2)
+                otherPlayer.y = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, 0.2)
+
+                if (otherPlayer.targetRotation !== undefined) {
+                    const targetRad = Phaser.Math.DegToRad(otherPlayer.targetRotation)
+
+                    otherPlayer.ship.rotation = Phaser.Math.Angle.RotateTo(
+                        otherPlayer.ship.rotation, 
+                        targetRad, 
+                        0.15
+                    )
+                }
+
+                const distanceMoved = Phaser.Math.Distance.Between(otherPlayer.x, otherPlayer.y, otherPlayer.targetX, otherPlayer.targetY)
+
+                if (distanceMoved > 0.5) {
+                    otherPlayer.updateEmitter()
+                    if (!otherPlayer.emitter.emitting) otherPlayer.emitter.start()
+                }
+                else {
+                    otherPlayer.emitter.stop()
+                }
+            }
+
+            otherPlayer.redrawHealthBar()
+        })
+    }
+
+    private cleanSpectatorUI() {
+        this.specLeftBtn?.destroy()
+        this.specRightBtn?.destroy()
+        this.spectatorNameText?.destroy()
+        this.specLeftBtn = undefined
+        this.specRightBtn = undefined
+        this.spectatorNameText = undefined
     }
 }

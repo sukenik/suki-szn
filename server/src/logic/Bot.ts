@@ -18,7 +18,8 @@ export type ShootCallback = (bulletData: iBullet) => void
 export type RecordCallback = (bulletData: iBullet, target: iPlayer) => void
 
 const {
-    PLAYER_SPEED, TICK_RATE, MAX_HEALTH, BULLET_SPEED, ANGLE_OFFSET
+    PLAYER_SPEED, MAX_HEALTH, BULLET_SPEED, ANGLE_OFFSET, PLAYER_RADIUS,
+    WORLD_WIDTH, WORLD_HEIGHT
 } = GAME_SETTINGS
 
 export class Bot implements iPlayer {
@@ -60,7 +61,11 @@ export class Bot implements iPlayer {
         this.onRecordShot = onRecordShot
     }
 
-    public update(allPlayers: { [id: string]: iPlayer }, healPacks: iHealPack[]) {
+    public update(
+        allPlayers: { [id: string]: iPlayer },
+        healPacks: iHealPack[],
+        dt: number
+    ) {
         const target = this.findClosestTarget(allPlayers)
         const allBots = Object.values(allPlayers).filter(
             player => (player as Bot)?.isBot
@@ -72,23 +77,23 @@ export class Bot implements iPlayer {
             case BotState.CHASE:
                 if (target) {
                     this.handleNavigation(target)
-                    this.move(target.x, target.y, allBots)
+                    this.move(target.x, target.y, allBots, dt)
                 }
                 break
             case BotState.ATTACK:
                 if (target) {
-                    const sep = this.applySeparation(allBots, 0, 0)
+                    const sep = this.applySeparation(allBots, 0, 0, dt)
                     this.x += sep.x
                     this.y += sep.y
 
                     const dist = Math.hypot(this.x - target.x, this.y - target.y)
 
                     if (dist > 150) {
-                        this.move(target.x, target.y, allBots)
+                        this.move(target.x, target.y, allBots, dt)
                     }
                     else {
-                        this.vx = 0
-                        this.vy = 0
+                        this.vx = sep.x / dt
+                        this.vy = sep.y / dt
                     }
 
                     this.lookAt(target.x, target.y)
@@ -105,7 +110,7 @@ export class Bot implements iPlayer {
                 }
                 break
             case BotState.EVADE:
-                this.doEvade(healPacks, allBots, target)
+                this.doEvade(healPacks, allBots, target, dt)
                 break
         }
     }
@@ -123,6 +128,7 @@ export class Bot implements iPlayer {
         const validTargets = allPlayersArray.filter(p => {
             if (p.id === this.id) return false
             if ((p as Bot)?.isBot) return false
+            if (p.hp <= 0) return false
 
             if (this.roomId) {
                 const room = survivalRooms.get(this.roomId)
@@ -161,49 +167,74 @@ export class Bot implements iPlayer {
         return dist > 100
     }
 
-    private move(targetX: number, targetY: number, allBots: Bot[]) {
-        const hasLOS = this.gridManager.hasLineOfSight(this.x, this.y, targetX, targetY)
+    private move(
+        targetX: number,
+        targetY: number,
+        allBots: Bot[],
+        dt: number,
+        isHeal: boolean = false
+    ) {
+        const hasLOSDirect = this.gridManager.hasLineOfSight(this.x, this.y, targetX, targetY)
 
-        if (hasLOS) {
-            this.currentPath = []
+        let finalTargetX = targetX
+        let finalTargetY = targetY
+
+        const distToPlayer = Math.hypot(targetX - this.x, targetY - this.y)
+        const attackRadius = 250 
+
+        if (!isHeal && hasLOSDirect && distToPlayer < attackRadius) {
+            const angleFromPlayer = Math.atan2(this.y - targetY, this.x - targetX)
+            finalTargetX = targetX + Math.cos(angleFromPlayer) * attackRadius
+            finalTargetY = targetY + Math.sin(angleFromPlayer) * attackRadius
         }
-        else {
+
+        if (!hasLOSDirect) {
             if (this.currentPath.length < 2) {
-                this.vx = 0
-                this.vy = 0
-                return
+                this.currentPath = this.pathfinder.findPath(this.x, this.y, finalTargetX, finalTargetY)
             }
-
-            const nextNode = this.currentPath[1]
-            targetX = nextNode.worldX
-            targetY = nextNode.worldY
-
-            if (Math.hypot(targetX - this.x, targetY - this.y) < 10) {
-                this.currentPath.shift()
-                this.vx = 0
-                this.vy = 0
-                return
+            
+            if (this.currentPath.length >= 2) {
+                const nextNode = this.currentPath[1]
+                finalTargetX = nextNode.worldX
+                finalTargetY = nextNode.worldY
+                
+                if (Math.hypot(this.x - nextNode.worldX, this.y - nextNode.worldY) < 20) {
+                    this.currentPath.shift()
+                }
             }
         }
 
-        const dx = targetX - this.x
-        const dy = targetY - this.y
-        const angleRad = Math.atan2(dy, dx)
-        const moveStep = PLAYER_SPEED / TICK_RATE
+        const dx = finalTargetX - this.x
+        const dy = finalTargetY - this.y
+        const distToTarget = Math.hypot(dx, dy)
 
-        let vx = Math.cos(angleRad) * moveStep
-        let vy = Math.sin(angleRad) * moveStep
+        const stopRadius = isHeal ? 2 : 10
 
-        const separatedVelocity = this.applySeparation(allBots, vx, vy)
+        let vx = 0
+        let vy = 0
 
-        const finalAngleRad = Math.atan2(separatedVelocity.y, separatedVelocity.x)
+        if (distToTarget > stopRadius) {
+            const angleRad = Math.atan2(dy, dx)
+            vx = Math.cos(angleRad) * PLAYER_SPEED * dt
+            vy = Math.sin(angleRad) * PLAYER_SPEED * dt
+        }
 
-        this.angle = (finalAngleRad * (180 / Math.PI)) + ANGLE_OFFSET
+        const separatedVelocity = this.applySeparation(allBots, vx, vy, dt)
 
         this.x += separatedVelocity.x
         this.y += separatedVelocity.y
-        this.vx = separatedVelocity.x
-        this.vy = separatedVelocity.y
+        this.vx = separatedVelocity.x / dt
+        this.vy = separatedVelocity.y / dt
+
+        if (Math.hypot(separatedVelocity.x, separatedVelocity.y) > 0.1) {
+            if (this.state === BotState.ATTACK && distToPlayer < 400) {
+                this.lookAt(targetX, targetY)
+            }
+            else {
+                const movingAngle = Math.atan2(separatedVelocity.y, separatedVelocity.x)
+                this.angle = (movingAngle * (180 / Math.PI)) + ANGLE_OFFSET
+            }
+        }
     }
 
     private lookAt(targetX: number, targetY: number) {
@@ -226,9 +257,9 @@ export class Bot implements iPlayer {
         }
 
         const dist = Math.hypot(this.x - target.x, this.y - target.y)
-        const canSee = this.gridManager.hasLineOfSight(this.x, this.y, target.x, target.y)
+        const hasLOS = this.gridManager.hasLineOfSight(this.x, this.y, target.x, target.y)
 
-        if (dist < 400 && canSee) {
+        if (dist < 450 && hasLOS) {
             this.state = BotState.ATTACK
         }
         else {
@@ -241,23 +272,27 @@ export class Bot implements iPlayer {
         if (now - this.lastShotTime < this.SHOOT_COOLDOWN) return
 
         const dist = Math.hypot(target.x - this.x, target.y - this.y)
-        const timeToHit = dist / BULLET_SPEED
 
+        const timeToHit = dist / BULLET_SPEED
         const predictedX = target.x + target.vx * timeToHit
         const predictedY = target.y + target.vy * timeToHit
-
+        
         const dx = predictedX - this.x
         const dy = predictedY - this.y
         const predictedAngleRad = Math.atan2(dy, dx)
+
+        const directAngleRad = Math.atan2(target.y - this.y, target.x - this.x)
+
+        const finalAngleRad = dist < 250 ? directAngleRad : predictedAngleRad
 
         const bulletData: iBullet = {
             id: `bullet-bot-${Math.random().toString(36).substring(2, 5)}`,
             playerId: this.id,
             x: this.x,
             y: this.y,
-            vx: Math.cos(predictedAngleRad) * BULLET_SPEED,
-            vy: Math.sin(predictedAngleRad) * BULLET_SPEED,
-            angle: this.angle - ANGLE_OFFSET
+            vx: Math.cos(finalAngleRad) * BULLET_SPEED,
+            vy: Math.sin(finalAngleRad) * BULLET_SPEED,
+            angle: (finalAngleRad * (180 / Math.PI))
         }
 
         this.onShoot(bulletData)
@@ -269,31 +304,39 @@ export class Bot implements iPlayer {
         this.lastShotTime = now
     }
 
-    private applySeparation(allBots: Bot[], vx: number, vy: number) {
-        const SEPARATION_DISTANCE = 100
+    private applySeparation(allBots: Bot[], vx: number, vy: number, dt: number) {
+        const MIN_DIST = PLAYER_RADIUS * 2.2
         let pushX = 0
         let pushY = 0
 
         allBots.forEach(other => {
             if (other.id === this.id) return
 
+            const dx = this.x - other.x
+            const dy = this.y - other.y
             const dist = Math.hypot(this.x - other.x, this.y - other.y)
 
-            if (dist < SEPARATION_DISTANCE && dist > 0) {
-                const force = (SEPARATION_DISTANCE - dist) / SEPARATION_DISTANCE
+            if (dist < MIN_DIST) {
+                const angle = dist === 0 ? Math.random() * Math.PI * 2 : Math.atan2(dy, dx)
 
-                pushX += (this.x - other.x) / dist * force * 2
-                pushY += (this.y - other.y) / dist * force * 2
+                const force = (MIN_DIST - dist) / MIN_DIST
+
+                pushX += Math.cos(angle) * PLAYER_SPEED * force * 0.5 * dt
+                pushY += Math.sin(angle) * PLAYER_SPEED * force * 0.5 * dt
+
+                const dotProduct = (vx * -dx + vy * -dy) / (dist || 1)
+
+                if (dotProduct > 0) {
+                    vx *= 0.5
+                    vy *= 0.5
+                }
             }
         })
 
-        return {
-            x: vx + pushX,
-            y: vy + pushY
-        }
+        return { x: vx + pushX, y: vy + pushY }
     }
 
-    private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null) {
+    private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null, dt: number) {
         const activeHeals = healPacks.filter(h => h.active)
 
         if (activeHeals.length === 0) {
@@ -302,10 +345,10 @@ export class Bot implements iPlayer {
                 const dy = this.y - target.y
                 const angleToRun = Math.atan2(dy, dx)
 
-                const x = Math.max(0, Math.min(GAME_SETTINGS.WORLD_WIDTH, this.x + Math.cos(angleToRun) * 500))
-                const y = Math.max(0, Math.min(GAME_SETTINGS.WORLD_HEIGHT, this.y + Math.sin(angleToRun) * 500))
+                const x = Math.max(0, Math.min(WORLD_WIDTH, this.x + Math.cos(angleToRun) * PLAYER_SPEED * dt))
+                const y = Math.max(0, Math.min(WORLD_HEIGHT, this.y + Math.sin(angleToRun) * PLAYER_SPEED * dt))
 
-                this.move(x, y, allBots)
+                this.move(x, y, allBots, dt)
             }
 
             return
@@ -324,7 +367,7 @@ export class Bot implements iPlayer {
             this.lastPathCalc = now
         }
 
-        this.move(closestHeal.x, closestHeal.y, allBots)
+        this.move(closestHeal.x, closestHeal.y, allBots, dt, true)
     }
 
     async loadBrain() {
@@ -348,26 +391,26 @@ export class Bot implements iPlayer {
     }
 
     shouldIShoot(distance: number, target: iPlayer, relativeAngle: number): boolean {
+        if (distance < 250 && relativeAngle < 0.17) {
+            return true
+        }
+
         if (!this.model) return true
 
-        const targetVx = target.vx
-        const targetVy = target.vy
+        return tf.tidy(() => {
+            const input = tf.tensor2d([[
+                distance / 1000,
+                target.vx / 5,
+                target.vy / 5,
+                relativeAngle / Math.PI
+            ]])
 
-        const input = tf.tensor2d([[
-            distance / 1000,
-            targetVx / 5,
-            targetVy / 5,
-            relativeAngle / Math.PI
-        ]])
+            const prediction = this.model!.predict(input) as tf.Tensor
+            const score = prediction.dataSync()[0]
+            
+            if (distance < 150) return score > 0.5
 
-        const prediction = this.model.predict(input) as tf.Tensor
-        const score = prediction.dataSync()[0]
-
-        input.dispose()
-        prediction.dispose()
-
-        if (distance < 150) return score > 0.5
-
-        return score > 0.75
+            return score > 0.75
+        })
     }
 }

@@ -225,7 +225,7 @@ html, body, #game-container, canvas {
     box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
 }
 
-#player-list-start-row {
+.player-list-start-row {
     margin-top: 20px;
     display: flex;
     justify-content: space-between;

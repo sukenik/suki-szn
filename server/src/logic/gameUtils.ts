@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { gridManager, io, isTrainingMode, obstacles, pathfinder } from '..'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../../shared/consts'
-import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iRectObstacle, ObstaclesType } from '../../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iRectObstacle, iLeaderboardUpdateReturnType, iLeaderboardUpdate } from '../../../shared/types'
 import { recordHit, recordShotAttempt } from '../ai/recordData'
 import { BULLET_DAMAGE } from '../consts'
 import { supabase } from '../db'
@@ -23,15 +23,16 @@ export const getIsCollidingBullet = (x: number, y: number) => {
 export const updateBullets = (
 	bullets: iBullet[],
 	players: { [id: string]: iPlayer },
-	bots: Bot[]
+	bots: Bot[],
+	dt: number
 ) => {
 	for (let i = bullets.length - 1; i >= 0; i--) {
 		const bullet = bullets[i]
 
 		if (!bullet) continue
 
-		bullet.x += bullet.vx / TICK_RATE
-		bullet.y += bullet.vy / TICK_RATE
+		bullet.x += bullet.vx * dt
+        bullet.y += bullet.vy * dt
 
 		if (getIsCollidingBullet(bullet.x, bullet.y)) {
 			bullets.splice(i, 1)
@@ -140,15 +141,29 @@ export const respawnPlayer = (
 	})
 }
 
-export const broadcastLeaderboard = async () => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('username, high_score')
-        .order('high_score', { ascending: false })
-        .limit(10)
+export const broadcastLeaderboard = async (data?: iLeaderboardUpdateReturnType) => {
+	let emitData, dbError
 
-    if (!error) {
-        io.emit(GAME_EVENTS.LEADERBOARD_UPDATE, data)
+	if (data) {
+		data
+		emitData = data
+	}
+	else {
+		const { data, error } = await supabase
+			.from('users')
+			.select('username, high_score')
+			.order('high_score', { ascending: false })
+			.limit(5)
+
+		dbError = error
+		emitData = { data: data as iLeaderboardUpdate[] }
+	}
+
+    if (!dbError) {
+        io.emit(
+			GAME_EVENTS.LEADERBOARD_UPDATE,
+			emitData
+		)
     }
 }
 
@@ -160,18 +175,17 @@ export const updateHeals = (
 	healPacks.forEach(pack => {
 		if (!pack.active) return
 
-		Object.values(players).forEach(player => {
-			const dist = Math.hypot(player.x - pack.x, player.y - pack.y)
+		Object.values(players).forEach(entity => {
+			const dist = Math.hypot(entity.x - pack.x, entity.y - pack.y)
 
-			if (player.hp !== MAX_HEALTH && (dist < PLAYER_RADIUS + 15)) {
+			if (entity.hp < MAX_HEALTH && (dist < PLAYER_RADIUS + 15)) {
 				pack.active = false
-				player.hp = Math.min(MAX_HEALTH, player.hp + 20)
+				entity.hp = Math.min(MAX_HEALTH, entity.hp + 20)
 
-				const bot = bots.find(({ id }) => player.id === id)
-
-				if (bot) {
-					bot.hp = Math.min(MAX_HEALTH, player.hp + 20)
-				}
+                const botRef = bots.find(b => b.id === entity.id)
+                if (botRef) {
+                    botRef.hp = entity.hp
+                }
 
 				setTimeout(() => {
 					const { x, y } = generateNewLocation()
@@ -185,26 +199,26 @@ export const updateHeals = (
 	})
 }
 
-export const updatePlayerPhysics = (players: { [id: string]: iPlayer }) => {
+export const updatePlayerPhysics = (players: { [id: string]: iPlayer }, dt: number) => {
 	Object.values(players).forEach((player) => {
 		const input = player.lastInput
 		if (!input || (player as Bot)?.isBot) return
 
 		player.angle = input.angle
-		const moveStep = PLAYER_SPEED / TICK_RATE
 
-		const vx = input.vx * moveStep
-		const vy = input.vy * moveStep
+		const moveStepX = input.vx * PLAYER_SPEED * dt
+        const moveStepY = input.vy * PLAYER_SPEED * dt
 
-		const nextX = Math.max(PLAYER_RADIUS, Math.min(WORLD_WIDTH - PLAYER_RADIUS, player.x + vx))
-		const nextY = Math.max(PLAYER_RADIUS, Math.min(WORLD_HEIGHT - PLAYER_RADIUS, player.y + vy))
+		const nextX = Math.max(PLAYER_RADIUS, Math.min(WORLD_WIDTH - PLAYER_RADIUS, player.x + moveStepX))
+        const nextY = Math.max(PLAYER_RADIUS, Math.min(WORLD_HEIGHT - PLAYER_RADIUS, player.y + moveStepY))
 
 		if (!checkCollision(nextX, nextY)) {
 			player.x = nextX
 			player.y = nextY
-			player.vx = vx
-			player.vy = vy
-		} else {
+			player.vx = input.vx * PLAYER_SPEED
+            player.vy = input.vy * PLAYER_SPEED
+		}
+		else {
 			player.vx = 0
 			player.vy = 0
 		}
@@ -274,10 +288,16 @@ export const setBots = async (
 		const id = `Bot-${uuidv4()}`
 		const name = `Bot-${i + 1}`
 	
-		const { x, y } = generateNewLocation()
+		let location = generateNewLocation()
+
+		let attempts = 0
+		while (bots.some(b => Math.hypot(b.x - location.x, b.y - location.y) < 100) && attempts < 10) {
+			location = generateNewLocation()
+			attempts++
+		}
 	
 		const bot = new Bot(
-			id, x, y, name, pathfinder, gridManager, onShoot,
+			id, location.x, location.y, name, pathfinder, gridManager, onShoot,
             (bulletData, target) => {
                 isTrainingMode && recordShotAttempt(bot, target, bulletData.id)
             }

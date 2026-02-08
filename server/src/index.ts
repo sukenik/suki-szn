@@ -4,7 +4,7 @@ import * as admin from 'firebase-admin'
 import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuidv4 } from 'uuid'
-import { GAME_ERRORS, GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
+import { GAME_ERRORS, GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
 import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { recordMiss, saveBufferToFile } from './ai/recordData'
 import { supabase } from './db'
@@ -14,7 +14,7 @@ import { broadcastLeaderboard, getNewHealPacks, setBots, updateBullets, updateHe
 import { GridManager } from './logic/GridManager'
 import { SurvivalManager } from './logic/SurvivalManager'
 import { generateNewLocation, startCountdown, stopCountdown } from './logic/survivalUtils'
-import { getPlayersInRoom, iSurvivalRoom, survivalRooms } from './room'
+import { getPlayersInRoom, getRoomIds, iSurvivalRoom, survivalRooms } from './room'
 
 const app = express()
 
@@ -31,7 +31,7 @@ export const io = new Server(httpServer, {
 })
 
 const {
-    WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, TICK_RATE
+    WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH, TICK_RATE, PLAYER_SPEED
 } = GAME_SETTINGS
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT as string)
@@ -67,6 +67,7 @@ const players: { [id: string]: iPlayer } = {}
 const bots: Bot[] = []
 const bullets: iBullet[] = []
 let healPacks: iHealPack[] = getNewHealPacks()
+let lastUpdate = Date.now()
 
 export const gridManager = new GridManager(WORLD_WIDTH, WORLD_HEIGHT, 50)
 export const pathfinder = new AStarPathfinder(gridManager)
@@ -114,36 +115,39 @@ if (isTrainingMode) {
 }
 
 setInterval(async () => {
-    bots.forEach(bot => {
-        bot.update(players, healPacks)
+    const now = Date.now()
+    const dt = (now - lastUpdate) / 1000
+    lastUpdate = now
 
-        players[bot.id] = {
-            id: bot.id,
-            x: bot.x,
-            y: bot.y,
-            vx: bot.vx,
-            vy: bot.vy,
-            angle: bot.angle,
-            hp: bot.hp,
-            name: bot.name,
-            kills: bot.kills,
-            firebaseId: bot.firebaseId,
-            isBot: true
-        } as Bot
+    updatePlayerPhysics(players, dt)
+
+    bots.forEach(bot => {
+        if (!bot.roomId) {
+            bot.update(players, healPacks, dt)
+            players[bot.id] = { ...bot } as iPlayer
+        }
     })
 
-    updatePlayerPhysics(players)
     updateHeals(healPacks, players, bots)
-    updateBullets(bullets, players, bots)
+    updateBullets(bullets, players, bots, dt)
+
+    const playersInSurvival = new Set<string>()
+    const survivalRoomIds = getRoomIds()
+
+    for (const roomId of survivalRoomIds) {
+        const roomPlayers = getPlayersInRoom(roomId, players)
+        Object.keys(roomPlayers).forEach(id => playersInSurvival.add(id))
+    }
 
     survivalManagers.forEach((manager, roomId) => {
         const roomPlayers = getPlayersInRoom(roomId, players)
 
-        manager.update(roomPlayers)
+        manager.update(roomPlayers, dt)
 
         const roomBots = manager.getBots()
 
-        const combinedPlayers: { [id: string]: iPlayer } = { ...roomPlayers }
+        const combinedPlayers = { ...roomPlayers }
+
         roomBots.forEach(bot => {
             combinedPlayers[bot.id] = bot as iPlayer
         })
@@ -159,13 +163,31 @@ setInterval(async () => {
         io.to(roomId).emit(GAME_EVENTS.SERVER_UPDATE, updateData)
     })
 
-    const updateData: iServerUpdateData = {
-        players,
+    const multiplayerPlayers: { [id: string]: iPlayer } = {}
+
+    Object.keys(players).forEach(id => {
+        if (!playersInSurvival.has(id)) {
+            multiplayerPlayers[id] = players[id]
+        }
+    })
+
+    const multiplayerUpdate: iServerUpdateData = {
+        players: multiplayerPlayers,
         bullets,
         heals: healPacks,
         obstacles
     }
-    io.emit(GAME_EVENTS.SERVER_UPDATE, updateData)
+    io.sockets.sockets.forEach((socket) => {
+        if (!playersInSurvival.has(socket.id)) {
+            const otherPlayers = { ...multiplayerPlayers }
+            delete otherPlayers[socket.id]
+
+            socket.emit(GAME_EVENTS.SERVER_UPDATE, {
+                ...multiplayerUpdate,
+                players: otherPlayers
+            })
+        }
+    })
 
 }, 1000 / TICK_RATE)
 
@@ -177,7 +199,23 @@ io.on('connection', async (socket) => {
 
         socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
         socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
-        await broadcastLeaderboard()
+
+        if (socket.handshake.auth.mode === GAME_MODE.SURVIVAL) {
+
+            const roomValues = socket.rooms.keys()
+            roomValues.next().value
+            const roomId = roomValues.next().value || ''
+    
+            const manager = survivalManagers.get(roomId)
+    
+            manager && await broadcastLeaderboard({
+                data: manager.getLeaderboardData(),
+                wave: manager.getCurrentWave()
+            })
+        }
+        else {
+            await broadcastLeaderboard()
+        }
     })
 
     try {
@@ -279,6 +317,7 @@ const setupGameEvents = async (socket: Socket) => {
         }
 
         survivalRooms.set(roomId, roomData)
+
         socket.join(roomId)
 
         socket.emit(GAME_EVENTS.ROOM_CREATED, { roomId })
@@ -337,23 +376,17 @@ const setupGameEvents = async (socket: Socket) => {
 
     await broadcastLeaderboard()
 
-    // TODO: delete
-    socket.on(GAME_EVENTS.REQUEST_IS_ADMIN, async () => {
-        const player = players[socket.id]
-
-        if (player) {
-            const isAdmin = player.firebaseId === process.env.ADMIN_FIREBASE_UID
-
-            socket.emit(GAME_EVENTS.IS_ADMIN, { isAdmin })
-        }
-    })
-
     socket.on(GAME_EVENTS.INPUT_UPDATE, (inputData: iPlayerInputs) => {
         const player = players[socket.id]
+        if (!player) return
 
-        if (player) {
-            player.lastInput = inputData
-        }
+        const { vx, vy, angle } = inputData
+
+        player.vx = vx * PLAYER_SPEED
+        player.vy = vy * PLAYER_SPEED
+        player.angle = angle
+
+        player.lastInput = inputData
     })
 
     socket.on(GAME_EVENTS.PLAYER_SHOOT, (data: { vx: number, vy: number, x: number, y: number }) => {
@@ -416,7 +449,7 @@ const setupGameEvents = async (socket: Socket) => {
 
         if (allReady && room.players.length > 0 && room.players.length <= 4) {
             room.isStarted = true
-            startCountdown(roomId, io)
+            startCountdown(roomId, io, playersInRoom)
         }
         else {
             stopCountdown(roomId, io)

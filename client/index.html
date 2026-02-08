@@ -70,7 +70,7 @@
           <input type="text" id="room-link" readonly>
           <button id="copy-link-btn" class="icon-btn">📋 Copy</button>
         </div>
-        <div id="player-list-start-row">
+        <div class="player-list-start-row">
           <div style="margin-left: 40px;">Player:</div>
           <div style="margin-right: 25px;">Status:</div>
         </div>
@@ -91,6 +91,12 @@
     <div id="error-screen" style="display: none;">
       <div class="lobby-card">
         <h1 id="error-title"></h1>
+        <div id="error-description"></div>
+        <div id="survival-list-first-row" class="player-list-start-row" style="display: none;">
+          <div style="margin-left: 40px;">Player:</div>
+          <div style="margin-right: 25px;">Score:</div>
+        </div>
+        <div id="survival-list" class="player-list"></div>
         <button class="back-to-menu-btn">⬅️ Back to menu</button>
       </div>
     </div>
