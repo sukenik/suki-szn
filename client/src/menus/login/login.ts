@@ -27,7 +27,7 @@ async function startApp() {
     const errorDiv = document.getElementById('error')
     const errorText = document.getElementById('error-text')
     const modeSelector = document.getElementById('mode-selector')
-    const multiBtn = document.getElementById('multiplayer-btn')
+    const multiplayerBtn = document.getElementById('multiplayer-btn')
     const survivalBtn = document.getElementById('survival-btn')
 
     if (loginScreen) loginScreen.style.display = 'flex'
@@ -143,7 +143,7 @@ async function startApp() {
                 if (modeSelector) {
                     modeSelector.style.display = 'flex'
         
-                    multiBtn?.addEventListener('click', () => {
+                    multiplayerBtn?.addEventListener('click', () => {
                         modeSelector.style.display = 'none'
                         startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom)
                     })

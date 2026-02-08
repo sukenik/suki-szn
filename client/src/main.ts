@@ -61,7 +61,9 @@ export class MainScene extends Phaser.Scene {
     create() {
         this.socket = this.game.registry.get('socket')
         this.isMobile = this.scale.width < 1000
-        if (this.isMobile) this.currentMapSize = 120
+        if (this.isMobile) {
+            this.currentMapSize = 120
+        }
 
         this.setupGroups()
         this.setupPhysics()
@@ -706,7 +708,7 @@ export class MainScene extends Phaser.Scene {
                 this.waveTextDisplay?.setText(`WAVE: ${data.wave}`)
             }
             else {
-                this.waveTextDisplay?.setText('🌍 Top 5 Global players:')
+                this.waveTextDisplay?.setText('Top 5 Global players:')
             }
 
             const users = leaderboardData.slice(0, 5)
