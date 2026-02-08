@@ -706,7 +706,7 @@ export class MainScene extends Phaser.Scene {
                 this.waveTextDisplay?.setText(`WAVE: ${data.wave}`)
             }
             else {
-                this.waveTextDisplay?.setText('🌍 Top 5 Global players')
+                this.waveTextDisplay?.setText('🌍 Top 5 Global players:')
             }
 
             const users = leaderboardData.slice(0, 5)
