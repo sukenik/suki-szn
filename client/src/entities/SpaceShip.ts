@@ -17,7 +17,14 @@ export class SpaceShip extends Phaser.GameObjects.Container {
     public targetY?: number
     public targetRotation?: number
 
-    constructor(scene: Phaser.Scene, x: number, y: number, playerInfo: iPlayer, isMainPlayer: boolean) {
+    constructor(
+        scene: Phaser.Scene,
+        x: number,
+        y: number,
+        playerInfo: iPlayer,
+        isMainPlayer: boolean,
+        isSurvival: boolean
+    ) {
         super(scene, x, y)
 
         this.playerId = playerInfo.id
@@ -34,7 +41,12 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         this.ship = scene.add.sprite(0, 0, 'ship')
         this.ship.setDisplaySize(PLAYER_SIZE, PLAYER_SIZE)
-        if (!isMainPlayer) this.ship.setTint(0xff0000)
+
+        const isFriendlyColor = isSurvival && !playerInfo.id.includes('Bot')
+
+        if (!isMainPlayer) {
+            isFriendlyColor ? this.ship.setTint(0x00aaff) : this.ship.setTint(0xff0000)
+        }
 
         this.nameTag = scene.add.text(0, -(PLAYER_SIZE / 2 + 25), playerInfo.name || 'Unknown', {
             fontSize: '14px',
@@ -45,7 +57,12 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         this.healthBar = scene.add.graphics()
 
-        this.marker = scene.add.circle(0, 0, 50, isMainPlayer ? 0x00ff00 : 0xff0000).setDepth(100)
+        this.marker = scene.add.circle(
+            0, 0, 50,
+            isMainPlayer
+                ? 0x00ff00
+                : isFriendlyColor ? 0x00aaff : 0xff0000
+        ).setDepth(100)
 
         this.add([this.emitter, this.ship, this.nameTag, this.healthBar, this.marker])
 		this.sendToBack(this.emitter)

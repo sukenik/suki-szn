@@ -37,11 +37,8 @@ export const GAME_EVENTS = {
   JOIN_SURVIVAL: 'joinSurvival',
   ROOM_JOINED: 'roomJoined',
   WAVE_STARTED: 'waveStarted',
-  // TODO: remove
-  ADMIN_REMOVE_BOT: 'adminRemoveBot',
-  REQUEST_IS_ADMIN: 'requestIsAdmin',
-  IS_ADMIN: 'isAdmin',
-  //
+  PLAYER_RESPAWN: 'playerRespawn',
+  GAME_OVER: 'gameOver',
 } as const
 
 export const GAME_MODE = {

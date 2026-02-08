@@ -26,7 +26,7 @@ export const startGame = async (
 	const socket = io(serverUrl, {
 		auth: {
 			token,
-			mode, // TODO: necessary?
+			mode,
 			roomId: existingRoom
 		},
 		transports: ['websocket'],

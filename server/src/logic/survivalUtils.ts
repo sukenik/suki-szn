@@ -9,7 +9,15 @@ const { WORLD_WIDTH, WORLD_HEIGHT } = GAME_SETTINGS
 
 let countdowns = new Map<string, NodeJS.Timeout>()
 
-export const startCountdown = (roomId: string, io: Server) => {
+export const startCountdown = (
+    roomId: string,
+    io: Server,
+    playersInRoom: {
+        id: string
+        name: string
+        ready: boolean | undefined
+    }[]
+) => {
 	if (countdowns.has(roomId)) return
 
     let timeLeft = 10
@@ -30,7 +38,11 @@ export const startCountdown = (roomId: string, io: Server) => {
                 room.isStarted = true
                 io.to(roomId).emit(GAME_EVENTS.GAME_START)
 
-                const manager = new SurvivalManager(io, room)
+                const manager = new SurvivalManager(
+                    io,
+                    room,
+                    playersInRoom.map(({ name }) => name)
+                )
 
                 survivalManagers.set(roomId, manager)
                 manager.start()

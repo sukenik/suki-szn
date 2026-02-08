@@ -73,3 +73,13 @@ export interface iCompoundRectObstacle extends iBaseObstacle {
 }
 
 export type ObstaclesType = Array<iCircleObstacle | iRectObstacle | iCompoundRectObstacle>
+
+export interface iLeaderboardUpdate {
+    username: string
+    high_score: number
+}
+
+export interface iLeaderboardUpdateReturnType {
+    data: iLeaderboardUpdate[]
+    wave?: number
+}

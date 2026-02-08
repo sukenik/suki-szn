@@ -27,3 +27,7 @@ export const getPlayersInRoom = (
 
     return roomPlayersMap
 }
+
+export const getRoomIds = () => {
+    return survivalRooms.keys()
+}
