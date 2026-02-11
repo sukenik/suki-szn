@@ -1,11 +1,11 @@
 import { Server } from 'socket.io'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../../shared/consts'
-import { iBullet, iHealPack, iLeaderboardUpdate, iPlayer } from '../../../shared/types'
+import { iBullet, iHealPack, iLeaderboardUpdate, iSurvivalLeaderboardUpdate, iPlayer } from '../../../shared/types'
 import { BULLET_DAMAGE } from '../consts'
 import { supabase } from '../db'
-import { iSurvivalRoom } from '../room'
+import { iSurvivalRoom, survivalRooms } from '../room'
 import { Bot } from './Bot'
-import { broadcastLeaderboard, getIsCollidingBullet, getNewHealPacks, setBots, updateHeals } from './gameUtils'
+import { getIsCollidingBullet, getNewHealPacks, setBots, updateHeals } from './gameUtils'
 import { generateNewLocation } from './survivalUtils'
 
 const { PLAYER_RADIUS, WORLD_WIDTH, WORLD_HEIGHT, MAX_HEALTH } = GAME_SETTINGS
@@ -16,8 +16,10 @@ export class SurvivalManager {
     private healPacks: iHealPack[]
     private currentWave: number = 0
     private isActive: boolean = false
+	private isGameOver: boolean = false
 	private roomPlayersSnapshot: { [id: string]: iPlayer } = {}
 	private leaderboardDataSnapshot: iLeaderboardUpdate[] = []
+	private updateCounter = 0
 
 	constructor(
         private io: Server,
@@ -36,16 +38,13 @@ export class SurvivalManager {
     public getCurrentWave() { return this.currentWave }
     public getIsActive() { return this.isActive }
     public getLeaderboardData() { return this.leaderboardDataSnapshot }
+    public getIsGameOver() { return this.isGameOver }
     public addBullet(bullet: iBullet) { this.bullets.push(bullet) }
 
     public start() {
         this.isActive = true
         this.nextWave()
-
-		broadcastLeaderboard({
-			data: this.getLeaderboardData(),
-			wave: this.getCurrentWave()
-		})
+		this.broadcastLeaderboard()
     }
 
     public async nextWave() {
@@ -82,10 +81,15 @@ export class SurvivalManager {
 			allEntitiesInRoom[bot.id] = bot as iPlayer
 		})
 
-        this.bots.forEach(bot => bot.update(allEntitiesInRoom, this.healPacks, dt))
+		this.updateCounter++
+
+        this.bots.forEach((bot, index) => {
+			const shouldUpdateAI = (index % 2 === this.updateCounter % 2)
+
+			bot.update(allEntitiesInRoom, this.healPacks, dt, shouldUpdateAI)
+		})
 
         this.updateBullets(allEntitiesInRoom, dt)
-
         updateHeals(this.healPacks, allEntitiesInRoom, this.bots)
 	}
 
@@ -174,10 +178,7 @@ export class SurvivalManager {
 					}
 				})
 
-			broadcastLeaderboard({
-				data: this.getLeaderboardData(),
-				wave: this.getCurrentWave()
-			})
+			this.broadcastLeaderboard()
 
 			const killedBot = this.bots.find(b => b.id === player.id)
 
@@ -239,8 +240,6 @@ export class SurvivalManager {
 	}
 
 	private async gameOver() {
-		this.isActive = false
-
 		const { data, error } = await supabase
 			.from('users')
 			.select('username, survival_high_score')
@@ -251,8 +250,7 @@ export class SurvivalManager {
 			this.io.to(this.room.id).emit(GAME_EVENTS.GAME_OVER, data)
 		}
 
-		this.bots = []
-		this.bullets = []
+		this.destroy()
 	}
 
 	private setLeaderboardData(roomPlayers: { [id: string]: iPlayer }) {
@@ -268,4 +266,29 @@ export class SurvivalManager {
 			)
 		}
 	}
+
+	public broadcastLeaderboard() {
+		this.io.to(this.room.id).emit(GAME_EVENTS.SURVIVAL_LEADERBOARD_UPDATE, {
+			data: this.getLeaderboardData(),
+			wave: this.getCurrentWave()
+		} as iSurvivalLeaderboardUpdate)
+	}
+
+    private destroy() {
+		this.bots = []
+		this.bullets = []
+
+        this.room.players.forEach(playerId => {
+            const socket = this.io.sockets.sockets.get(playerId)
+            if (socket) {
+                socket.leave(this.room.id)
+            }
+        })
+
+        survivalRooms.delete(this.room.id)
+        console.log(`[Room ${this.room.id}] Game over. Cleaned up room.`)
+
+		this.isActive = false
+		this.isGameOver = true
+    }
 }

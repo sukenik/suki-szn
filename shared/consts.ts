@@ -39,6 +39,7 @@ export const GAME_EVENTS = {
   WAVE_STARTED: 'waveStarted',
   PLAYER_RESPAWN: 'playerRespawn',
   GAME_OVER: 'gameOver',
+  SURVIVAL_LEADERBOARD_UPDATE: 'survivalLeaderboardUpdate',
 } as const
 
 export const GAME_MODE = {

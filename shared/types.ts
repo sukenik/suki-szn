@@ -79,7 +79,7 @@ export interface iLeaderboardUpdate {
     high_score: number
 }
 
-export interface iLeaderboardUpdateReturnType {
+export interface iSurvivalLeaderboardUpdate {
     data: iLeaderboardUpdate[]
-    wave?: number
+    wave: number
 }

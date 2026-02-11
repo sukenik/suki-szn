@@ -121,16 +121,6 @@ setInterval(async () => {
 
     updatePlayerPhysics(players, dt)
 
-    bots.forEach(bot => {
-        if (!bot.roomId) {
-            bot.update(players, healPacks, dt)
-            players[bot.id] = { ...bot } as iPlayer
-        }
-    })
-
-    updateHeals(healPacks, players, bots)
-    updateBullets(bullets, players, bots, dt)
-
     const playersInSurvival = new Set<string>()
     const survivalRoomIds = getRoomIds()
 
@@ -139,7 +129,36 @@ setInterval(async () => {
         Object.keys(roomPlayers).forEach(id => playersInSurvival.add(id))
     }
 
+    const multiplayerPlayers: { [id: string]: iPlayer } = {}
+
+    Object.keys(players).forEach(id => {
+        const socket = io.sockets.sockets.get(id)
+        const isMultiplayer = socket?.handshake.auth.mode === GAME_MODE.MULTIPLAYER
+
+        if (!playersInSurvival.has(id) && isMultiplayer) {
+            multiplayerPlayers[id] = players[id]
+        }
+    })
+
+    bots.forEach(bot => {
+        if (!bot.roomId) {
+            // TODO: fix
+            bot.update(multiplayerPlayers, healPacks, dt, true)
+            players[bot.id] = { ...bot } as iPlayer
+            multiplayerPlayers[bot.id] = players[bot.id]
+        }
+    })
+
+    updateHeals(healPacks, multiplayerPlayers, bots)
+    updateBullets(bullets, multiplayerPlayers, bots, dt)
+
+    const finishedManagers: string[] = []
+
     survivalManagers.forEach((manager, roomId) => {
+        if (manager.getIsGameOver()) {
+            finishedManagers.push(roomId)
+            return
+        }
         const roomPlayers = getPlayersInRoom(roomId, players)
 
         manager.update(roomPlayers, dt)
@@ -163,12 +182,8 @@ setInterval(async () => {
         io.to(roomId).emit(GAME_EVENTS.SERVER_UPDATE, updateData)
     })
 
-    const multiplayerPlayers: { [id: string]: iPlayer } = {}
-
-    Object.keys(players).forEach(id => {
-        if (!playersInSurvival.has(id)) {
-            multiplayerPlayers[id] = players[id]
-        }
+    finishedManagers.forEach(roomId => {
+        survivalManagers.delete(roomId)
     })
 
     const multiplayerUpdate: iServerUpdateData = {
@@ -201,17 +216,13 @@ io.on('connection', async (socket) => {
         socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
 
         if (socket.handshake.auth.mode === GAME_MODE.SURVIVAL) {
-
             const roomValues = socket.rooms.keys()
             roomValues.next().value
             const roomId = roomValues.next().value || ''
     
             const manager = survivalManagers.get(roomId)
-    
-            manager && await broadcastLeaderboard({
-                data: manager.getLeaderboardData(),
-                wave: manager.getCurrentWave()
-            })
+
+            manager && manager.broadcastLeaderboard()
         }
         else {
             await broadcastLeaderboard()
@@ -226,15 +237,62 @@ io.on('connection', async (socket) => {
         const existingPlayer = Object.values(players).find(p => p.firebaseId === userId)
 
         if (existingPlayer) {
-            console.log(`Found existing player for UID ${decodedToken.uid}, kicking old socket...`)
+            console.log(`Found existing player for UID ${decodedToken.uid}, reconnecting...`)
             const oldSocket = io.sockets.sockets.get(existingPlayer.id)
 
             if (oldSocket) {
                 oldSocket.disconnect(true)
             }
 
-            delete players[existingPlayer.id]
-            io.emit(GAME_EVENTS.PLAYER_LEFT, existingPlayer.id)
+            const oldId = existingPlayer.id
+            const newId = socket.id
+
+            if (existingPlayer.hp <= 0) {
+                players[newId] = {
+                    ...existingPlayer,
+                    ...generateNewLocation(),
+                    id: newId,
+                    hp: MAX_HEALTH,
+                    kills: 0,
+                    vx: 0,
+                    vy: 0,
+                }
+            }
+            else {
+                players[newId] = { ...existingPlayer, id: newId, vx: 0, vy: 0 }
+            }
+
+            delete players[oldId]
+
+            for (const [roomId, room] of survivalRooms) {
+                if (room.players.includes(oldId)) {
+                    room.players = room.players.map(pid => pid === oldId ? newId : pid)
+
+                    const wasReady = room.readyStatus.get(oldId) || false
+                    room.readyStatus.delete(oldId)
+                    room.readyStatus.set(newId, wasReady)
+
+                    if (room.hostId === oldId) {
+                        room.hostId = newId
+                    }
+
+                    socket.join(roomId)
+                    
+                    const playersInRoom = room.players.map(pid => ({
+                        id: pid,
+                        name: players[pid]?.name || 'Unknown',
+                        ready: room.readyStatus.get(pid) || false
+                    }))
+                    io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: playersInRoom })
+                    break
+                }
+            }
+
+            io.emit(GAME_EVENTS.PLAYER_LEFT, oldId)
+            socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[newId])
+
+            console.log(`User ${players[newId].name} reconnected successfully.`)
+            return
         }
 
         let { data: user, error } = await supabase
@@ -285,6 +343,9 @@ io.on('connection', async (socket) => {
             vy: 0
         }
 
+        if (socket.handshake.auth.mode === GAME_MODE.MULTIPLAYER) {
+            socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
+        }
         console.log(`User ${user.username} authenticated and joined the game.`)
     } catch (error) {
         console.error('Authentication failed:', error)
@@ -459,28 +520,32 @@ const setupGameEvents = async (socket: Socket) => {
     socket.on('disconnect', () => {
         console.log(`User disconnected ${socket.id}`)
 
-        survivalRooms.forEach((room, roomId) => {
-            if (room.players.some(pid => pid == socket.id)) {
-                room.players = room.players.filter(pid => pid !== socket.id)
-                room.readyStatus.delete(socket.id)
+        setTimeout(() => {
+            if (players[socket.id]) {
+                survivalRooms.forEach((room, roomId) => {
+                    if (room.players.some(pid => pid == socket.id)) {
+                        room.players = room.players.filter(pid => pid !== socket.id)
+                        room.readyStatus.delete(socket.id)
+        
+                        if (room.players.length === 0) {
+                            survivalRooms.delete(roomId)
+                        }
+                        else {
+                            const updatedPlayers = room.players.map(pid => ({
+                                id: pid,
+                                name: players[pid]?.name || 'Unknown',
+                                ready: room.readyStatus.get(pid)
+                            }))
+        
+                            io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: updatedPlayers })
+                        }
+                    }
+                })
 
-                if (room.players.length === 0) {
-                    survivalRooms.delete(roomId)
-                }
-                else {
-                    const updatedPlayers = room.players.map(pid => ({
-                        id: pid,
-                        name: players[pid]?.name || 'Unknown',
-                        ready: room.readyStatus.get(pid)
-                    }))
-
-                    io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: updatedPlayers })
-                }
+                delete players[socket.id]
+                io.emit(GAME_EVENTS.PLAYER_LEFT, socket.id)
             }
-        })
-
-        delete players[socket.id]
-        io.emit(GAME_EVENTS.PLAYER_LEFT, socket.id)
+        }, 5000)
     })
 }
 

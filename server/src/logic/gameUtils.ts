@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { gridManager, io, isTrainingMode, obstacles, pathfinder } from '..'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../../shared/consts'
-import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iRectObstacle, iLeaderboardUpdateReturnType, iLeaderboardUpdate } from '../../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iRectObstacle, iSurvivalLeaderboardUpdate, iLeaderboardUpdate } from '../../../shared/types'
 import { recordHit, recordShotAttempt } from '../ai/recordData'
 import { BULLET_DAMAGE } from '../consts'
 import { supabase } from '../db'
@@ -9,8 +9,7 @@ import { Bot, ShootCallback } from './Bot'
 import { generateNewLocation } from './survivalUtils'
 
 const {
-	TICK_RATE, PLAYER_RADIUS, MAX_HEALTH, WORLD_WIDTH, WORLD_HEIGHT,
-	PLAYER_SPEED
+	PLAYER_RADIUS, MAX_HEALTH, WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SPEED
 } = GAME_SETTINGS
 
 export const getIsCollidingBullet = (x: number, y: number) => {
@@ -141,29 +140,15 @@ export const respawnPlayer = (
 	})
 }
 
-export const broadcastLeaderboard = async (data?: iLeaderboardUpdateReturnType) => {
-	let emitData, dbError
+export const broadcastLeaderboard = async () => {
+	const { data, error } = await supabase
+		.from('users')
+		.select('username, high_score')
+		.order('high_score', { ascending: false })
+		.limit(5)
 
-	if (data) {
-		data
-		emitData = data
-	}
-	else {
-		const { data, error } = await supabase
-			.from('users')
-			.select('username, high_score')
-			.order('high_score', { ascending: false })
-			.limit(5)
-
-		dbError = error
-		emitData = { data: data as iLeaderboardUpdate[] }
-	}
-
-    if (!dbError) {
-        io.emit(
-			GAME_EVENTS.LEADERBOARD_UPDATE,
-			emitData
-		)
+    if (!error) {
+        io.emit(GAME_EVENTS.LEADERBOARD_UPDATE, data as iLeaderboardUpdate[])
     }
 }
 
