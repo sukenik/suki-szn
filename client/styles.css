@@ -195,7 +195,7 @@ html, body, #game-container, canvas {
     font-weight: normal;
 }
 
-#survival-lobby, #error-screen, #mode-selector {
+#survival-lobby, #error-screen, #mode-selector, #app-loading-screen {
     position: fixed;
     inset: 0;
     background: url('/assets/stars.png') repeat;

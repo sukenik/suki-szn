@@ -64,19 +64,22 @@ export class Bot implements iPlayer {
     public update(
         allPlayers: { [id: string]: iPlayer },
         healPacks: iHealPack[],
-        dt: number
+        dt: number,
+        runAI: boolean
     ) {
         const target = this.findClosestTarget(allPlayers)
         const allBots = Object.values(allPlayers).filter(
             player => (player as Bot)?.isBot
         ) as Bot[]
 
-        this.evaluateState(target)
+        if (runAI) {
+            this.evaluateState(target)
+        }
 
         switch (this.state) {
             case BotState.CHASE:
                 if (target) {
-                    this.handleNavigation(target)
+                    if (runAI) this.handleNavigation(target)
                     this.move(target.x, target.y, allBots, dt)
                 }
                 break
@@ -104,7 +107,7 @@ export class Bot implements iPlayer {
                     let diff = Math.abs(currentAngleRad - angleToTarget)
                     if (diff > Math.PI) diff = Math.PI * 2 - diff
 
-                    if (this.shouldIShoot(dist, target, diff)) {
+                    if (runAI && this.shouldIShoot(dist, target, diff)) {
                         this.shoot(target)
                     }
                 }
@@ -391,9 +394,8 @@ export class Bot implements iPlayer {
     }
 
     shouldIShoot(distance: number, target: iPlayer, relativeAngle: number): boolean {
-        if (distance < 250 && relativeAngle < 0.17) {
-            return true
-        }
+        if (distance > 500) return false
+        if (distance < 250 && relativeAngle < 0.17) return true
 
         if (!this.model) return true
 

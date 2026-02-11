@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
-import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdateReturnType, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdate, iSurvivalLeaderboardUpdate, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
@@ -427,7 +427,7 @@ export class MainScene extends Phaser.Scene {
         )
 
         this.waveTextDisplay = this.add.text(
-            20, 20, 'WAVE: 1',
+            20, 20, '',
             { ...style, color: '#ff0000', fontSize: this.isMobile ? '16px' : '20px' }
         ).setScrollFactor(0).setDepth(1000)
 
@@ -480,6 +480,7 @@ export class MainScene extends Phaser.Scene {
             this.joystickBase?.destroy()
             this.joystickThumb?.destroy()
         }
+
         const x = 100
         const y = this.scale.height - 100
 
@@ -491,6 +492,7 @@ export class MainScene extends Phaser.Scene {
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, x, y)
+
             if (dist < this.JOYSTICK_RADIUS) {
                 this.joystickPointer = pointer
             }
@@ -697,38 +699,17 @@ export class MainScene extends Phaser.Scene {
             this.handlePlayerHit(data)
         })
 
-        this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: iLeaderboardUpdateReturnType) => {
-            let ranks = '🏆\n\n'
-            let names = 'PILOT\n\n'
-            let scores = 'SCORE\n\n'
+        this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: iLeaderboardUpdate[]) => {
+            this.waveTextDisplay?.setText('Top 5 Global players:')
 
-            const leaderboardData = data.data
+            this.setLeaderboardText(data)
+        })
 
-            if (data.wave) {
-                this.waveTextDisplay?.setText(`WAVE: ${data.wave}`)
-            }
-            else {
-                this.waveTextDisplay?.setText('Top 5 Global players:')
-            }
+        this.socket.on(GAME_EVENTS.SURVIVAL_LEADERBOARD_UPDATE, (update: iSurvivalLeaderboardUpdate) => {
+            const { data, wave } = update
 
-            const users = leaderboardData.slice(0, 5)
-
-            users.forEach((player, index) => {
-                const name = player.username || 'Unknown'
-                const score = player.high_score || 0
-
-                const formattedName = name.length >= 15
-                    ? `${name.substring(0, 15)}...`
-                    : name
-
-                ranks += `${index + 1}.\n`
-                names += `\u200E${formattedName}\n`
-                scores += `${score.toLocaleString()}\n`
-            })
-
-            this.rankColumn.setText(ranks)
-            this.nameColumn.setText(names)
-            this.scoreColumn.setText(scores)
+            this.waveTextDisplay?.setText(`WAVE: ${wave}`)
+            this.setLeaderboardText(data)
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_LEFT, (playerId: string) => {
@@ -833,6 +814,7 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.WAVE_STARTED, (data: { wave: number, botCount: number }) => {
+            this.waveTextDisplay?.setText(`WAVE: ${data.wave}`)
             this.showWaveMessage(data.wave)
         })
 
@@ -1053,5 +1035,29 @@ export class MainScene extends Phaser.Scene {
         this.specLeftBtn = undefined
         this.specRightBtn = undefined
         this.spectatorNameText = undefined
+    }
+
+    private setLeaderboardText(data: iLeaderboardUpdate[]) {
+        let ranks = '🏆\n\n'
+        let names = 'PILOT\n\n'
+        let scores = 'SCORE\n\n'
+
+
+        data.forEach((player, index) => {
+            const name = player.username || 'Unknown'
+            const score = player.high_score || 0
+
+            const formattedName = name.length >= 15
+                ? `${name.substring(0, 15)}...`
+                : name
+
+            ranks += `${index + 1}.\n`
+            names += `\u200E${formattedName}\n`
+            scores += `${score.toLocaleString()}\n`
+        })
+
+        this.rankColumn.setText(ranks)
+        this.nameColumn.setText(names)
+        this.scoreColumn.setText(scores)
     }
 }

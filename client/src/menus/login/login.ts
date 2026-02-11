@@ -4,7 +4,7 @@ import { GAME_MODE } from '../../../../shared/consts'
 import { appConfig } from '../../config'
 import { auth, loginEmail, loginWithGoogle, registerEmail } from '../../firebase'
 import { getError } from './logic'
-import { startGame } from './utils'
+import { setBackToMenuBtns, startGame, USER_TOKEN } from './utils'
 
 const { serverUrl } = appConfig
 
@@ -29,14 +29,59 @@ async function startApp() {
     const modeSelector = document.getElementById('mode-selector')
     const multiplayerBtn = document.getElementById('multiplayer-btn')
     const survivalBtn = document.getElementById('survival-btn')
+    let loadingScreen = document.getElementById('app-loading-screen')
 
-    if (loginScreen) loginScreen.style.display = 'flex'
+    const showLoading = () => {
+        if (!loadingScreen) {
+            loadingScreen = document.createElement('div')
+            loadingScreen.id = 'app-loading-screen'
+
+            Object.assign(loadingScreen.style, {
+                position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+                backgroundColor: '#000', display: 'flex', flexDirection: 'column',
+                justifyContent: 'center', alignItems: 'center', zIndex: '9999',
+                color: '#fff', fontFamily: 'monospace', fontSize: '1.5rem'
+            })
+            loadingScreen.innerHTML = `
+                <div id="loading-text" style="margin-bottom: 20px;">Loading...</div>
+                <div style="width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #fff; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+            `
+            document.body.appendChild(loadingScreen)
+        }
+        loadingScreen.style.display = 'flex'
+    }
+
+    const hideLoading = () => {
+        if (loadingScreen) loadingScreen.style.display = 'none'
+    }
+
+    setBackToMenuBtns(showLoading, hideLoading)
+
+    const storedToken = localStorage.getItem(USER_TOKEN)
+    const isTokenValid = (token: string) => {
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]))
+            return payload.exp > (Date.now() / 1000)
+        } catch (e) {
+            return false
+        }
+    }
+
+    const hasValidToken = storedToken && isTokenValid(storedToken)
+
+    if (loginScreen && !hasValidToken) loginScreen.style.display = 'flex'
+    if (hasValidToken) {
+        isAuthenticated = true
+    }
 
     const showStatus = (msg: string) => {
         if (statusDiv && statusText) {
             statusDiv.style.display = 'flex'
             statusText.textContent = msg
         }
+        const loadingText = document.getElementById('loading-text')
+        if (loadingText) loadingText.textContent = msg
     }
 
     const showError = (msg: string) => {
@@ -55,8 +100,12 @@ async function startApp() {
                 isServerUp = true
 
                 if (isAuthenticated) {
-                    handleUserConnected(auth.currentUser)
+                    const user = auth.currentUser || (hasValidToken ? { getIdToken: async () => storedToken } : null)
+                    if (user) {
+                        handleUserConnected(user)
+                    }
                     showStatus(`🔥 Server is up - let's go!`)
+                    showLoading()
                 }
                 else {
                     if (statusDiv) statusDiv.style.display = 'none'
@@ -69,10 +118,8 @@ async function startApp() {
                     showStatus('Waking up server (may take up to 60s)...')
                 }
                 else {
-                    // TODO: add disabled style
-                    if (loginBtn) loginBtn.disabled = true
-                    if (emailRegBtn) emailRegBtn.disabled = true
-                    if (emailRegBtn) emailLoginBtn.disabled = true
+                    showStatus(`✅ You're authenticated - waiting for server...`)
+                    showLoading()
                 }
             })
     }, 1000)
@@ -123,6 +170,11 @@ async function startApp() {
     const handleUserConnected = async (user: any) => {
         isAuthenticated = true
 
+        if (user) {
+            const token = await user.getIdToken()
+            localStorage.setItem(USER_TOKEN, token)
+        }
+
         if (spinner) spinner.style.borderTopColor = '#00ff55'
         if (statusText) statusText.style.color = '#00ff55'
         if (errorDiv) errorDiv.style.display = 'none'
@@ -131,26 +183,30 @@ async function startApp() {
 
         if (isServerUp) {
             loginScreen?.remove()
-            
+
             const urlParams = new URLSearchParams(window.location.search)
             const existingRoom = urlParams.get('room')
-    
+
             if (existingRoom) {
                 showStatus('Joining survival room...')
-                startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
+                showLoading()
+                startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
             }
             else {
                 if (modeSelector) {
+                    hideLoading()
                     modeSelector.style.display = 'flex'
-        
+
                     multiplayerBtn?.addEventListener('click', () => {
                         modeSelector.style.display = 'none'
-                        startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom)
+                        showLoading()
+                        startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom, hideLoading)
                     })
-            
+
                     survivalBtn?.addEventListener('click', () => {
                         modeSelector.style.display = 'none'
-                        startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom)
+                        showLoading()
+                        startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
                     })
                 }
             }
@@ -164,7 +220,9 @@ async function startApp() {
         else {
             if (!loginScreen) return
 
-            loginScreen.style.display = 'flex'
+            if (!isAuthenticated) {
+                loginScreen.style.display = 'flex'
+            }
 
             if (loginBtn) {
                 loginBtn.onclick = async () => {

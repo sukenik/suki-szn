@@ -4,11 +4,12 @@ import { phaserConfig, appConfig } from '../../config'
 import { SurvivalLobby } from '../lobby/SurvivalLobby'
 
 const { serverUrl, clientUrl } = appConfig
+export const USER_TOKEN = 'suki_token'
+
+let gameInstance: Phaser.Game | undefined
 
 const launchPhaser = (socket: Socket, loginScreen: HTMLElement | null) => {
-	let gameInstance: Phaser.Game | undefined
-
-	if (!gameInstance) { // TODO: necessary?
+	if (!gameInstance) {
 		gameInstance = new Phaser.Game(phaserConfig)
 		gameInstance.registry.set('socket', socket)
 		loginScreen?.remove()
@@ -19,8 +20,11 @@ export const startGame = async (
 	user: any,
 	mode: GameModeType,
 	loginScreen: HTMLElement | null,
-	existingRoom: string | null
+	existingRoom: string | null,
+	clearLoadingPage: () => void
 ) => {
+	if (gameInstance) return
+
 	const token = await user.getIdToken()
 
 	const socket = io(serverUrl, {
@@ -35,17 +39,9 @@ export const startGame = async (
 	})
 
 	socket.on('connect', () => {
-		const buttons = document.getElementsByClassName('back-to-menu-btn')!
-
-		for (let i = 0; i < buttons.length; i++) {
-			const button = buttons.item(i)!
-
-			button.addEventListener('click', () => {
-				window.location.href = clientUrl
-			})
-		}
-
 		socket.on('error', (message) => {
+			clearLoadingPage()
+
 			const errorPage = document.getElementById('error-screen')!
 			const messageTitle = document.getElementById('error-title')!
 			errorPage.style.display = 'flex'
@@ -59,6 +55,7 @@ export const startGame = async (
 		})
 
 		if (mode === GAME_MODE.MULTIPLAYER) {
+			clearLoadingPage()
 			launchPhaser(socket, loginScreen)
 		}
 		else {
@@ -69,10 +66,17 @@ export const startGame = async (
 				: socket.emit(GAME_EVENTS.CREATE_SURVIVAL)
 
 			socket.on(GAME_EVENTS.ROOM_CREATED, (data: { roomId: string }) => {
-				lobby.show(data.roomId)
+				const roomId = data.roomId
+
+				const newUrl = `${window.location.origin}${window.location.pathname}?room=${roomId}`
+				window.history.pushState({ path: newUrl }, '', newUrl)
+
+				clearLoadingPage()
+				lobby.show(roomId)
 			})
 
 			socket.on(GAME_EVENTS.ROOM_JOINED, (data: { roomId: string }) => {
+				clearLoadingPage()
 				lobby.show(data.roomId)
 			})
 
@@ -82,4 +86,21 @@ export const startGame = async (
 			})
 		}
 	})
+}
+
+export const setBackToMenuBtns = (
+	showLoadingPage: () => void,
+	clearLoadingPage: () => void
+) => {
+	const buttons = document.getElementsByClassName('back-to-menu-btn')!
+
+	for (let i = 0; i < buttons.length; i++) {
+		const button = buttons.item(i)!
+
+		button.addEventListener('click', () => {
+			showLoadingPage()
+			window.location.href = clientUrl
+			clearLoadingPage()
+		})
+	}
 }
