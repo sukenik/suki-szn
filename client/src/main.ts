@@ -106,7 +106,13 @@ export class MainScene extends Phaser.Scene {
             this.cameras.main.setViewport(0, 0, width, height)
 
             this.updateMinimapLayout(this.currentMapSize, this.MAP_MARGIN)
-            this.setupMobileControls()
+
+            if (this.isMobile && this.joystickBase && this.joystickThumb) {
+                const x = 100
+                const y = this.scale.height - 100
+                this.joystickBase.setPosition(x, y)
+                this.joystickThumb.setPosition(x, y)
+            }
 
             if (this.starfield) {
                 this.starfield.setSize(width, height)
@@ -591,7 +597,7 @@ export class MainScene extends Phaser.Scene {
             .setScrollFactor(0).setDepth(10000)
 
         this.uiGroup.add(this.joystickBase)
-        
+
         this.joystickThumb = this.add.circle(x, y, 30, 0xcccccc, 0.8)
             .setScrollFactor(0).setDepth(10001)
 
