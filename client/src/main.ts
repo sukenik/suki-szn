@@ -23,6 +23,10 @@ export class MainScene extends Phaser.Scene {
     private minimap!: Phaser.Cameras.Scene2D.Camera
     private minimapBorder!: Phaser.GameObjects.Graphics
     private heals!: Phaser.Physics.Arcade.Group
+    private uiCamera!: Phaser.Cameras.Scene2D.Camera
+    private backgroundCamera!: Phaser.Cameras.Scene2D.Camera
+    private uiGroup!: Phaser.GameObjects.Group
+    private obstaclesGroup!: Phaser.GameObjects.Group
 
     private obstacles: ObstaclesType = []
     private isMobile: boolean = false
@@ -45,6 +49,9 @@ export class MainScene extends Phaser.Scene {
     private spectatorNameText?: Phaser.GameObjects.Text
     private waveTextDisplay?: Phaser.GameObjects.Text
 
+    public getIsMobile = () => this.isMobile
+    public getIsSurvival = () => this.isSurvival
+
     constructor() {
         super('MainScene')
     }
@@ -61,9 +68,14 @@ export class MainScene extends Phaser.Scene {
     create() {
         this.socket = this.game.registry.get('socket')
         this.isMobile = this.scale.width < 1000
+
         if (this.isMobile) {
             this.currentMapSize = 120
+            this.cameras.main.setZoom(0.5)
         }
+
+        this.backgroundCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height)
+        this.backgroundCamera.setScroll(0, 0)
 
         this.setupGroups()
         this.setupPhysics()
@@ -73,6 +85,7 @@ export class MainScene extends Phaser.Scene {
         this.isMobile && this.setupMobileControls()
         this.setupNetworkEvents()
         this.setupLeaderboard()
+        this.setupCameras()
 
         this.events.on('postupdate', () => {
             if (this.playerContainer && !this.isDead) {
@@ -86,6 +99,9 @@ export class MainScene extends Phaser.Scene {
 
         this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
             const { width, height } = gameSize
+
+            if (this.uiCamera) this.uiCamera.setViewport(0, 0, width, height)
+            if (this.backgroundCamera) this.backgroundCamera.setViewport(0, 0, width, height)
 
             this.cameras.main.setViewport(0, 0, width, height)
 
@@ -116,14 +132,12 @@ export class MainScene extends Phaser.Scene {
                 attemptRequest()
             }
         })
-
-        this.cameras.main.ignore(this.add.group())
     }
 
     addMainPlayer(playerInfo: iPlayer) {
         if (this.playerContainer) this.playerContainer.destroy()
 
-        const container = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, true, this.isSurvival)
+        const container = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, true)
         this.playerContainer = container
 
         this.physics.world.enable(container)
@@ -135,12 +149,15 @@ export class MainScene extends Phaser.Scene {
         if (this.minimap) {
             this.minimap.ignore([container.nameTag, container.healthBar])
         }
+
+        if (this.uiCamera) this.uiCamera.ignore(container)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(container)
     }
 
     addOtherPlayer(playerInfo: iPlayer) {
         if (!playerInfo) return
 
-        const otherPlayer = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, false, this.isSurvival)
+        const otherPlayer = new SpaceShip(this, playerInfo.x, playerInfo.y, playerInfo, false)
 
         this.physics.world.enable(otherPlayer)
 
@@ -155,6 +172,9 @@ export class MainScene extends Phaser.Scene {
         }
 
         this.otherPlayers.add(otherPlayer)
+
+        if (this.uiCamera) this.uiCamera.ignore(otherPlayer)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(otherPlayer)
     }
 
     update(_: number, delta: number) {
@@ -304,6 +324,12 @@ export class MainScene extends Phaser.Scene {
 
     createBullet(bulletData: iBullet) {
         const bullet = this.bullets.create(bulletData.x, bulletData.y, 'bullet') as iBulletSprite
+        bullet.setDepth(10)
+
+        if (this.isMobile) {
+            bullet.setScale(1.5)
+        }
+
         const body = bullet.body as Phaser.Physics.Arcade.Body
 
         if (body) {
@@ -320,6 +346,9 @@ export class MainScene extends Phaser.Scene {
                 }
             })
         }
+
+        if (this.uiCamera) this.uiCamera.ignore(bullet)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(bullet)
     }
 
     private setupGroups = () => {
@@ -330,6 +359,8 @@ export class MainScene extends Phaser.Scene {
         this.otherPlayers = this.add.group()
         this.bullets = this.physics.add.group()
         this.heals = this.physics.add.group()
+        this.obstaclesGroup = this.add.group()
+        this.uiGroup = this.add.group()
     }
 
     private setupPhysics = () => {
@@ -343,10 +374,16 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupBackground = () => {
-        this.starfield = this.add.tileSprite(0, 0, window.innerWidth, window.innerHeight, 'stars')
+        const { width, height } = this.scale
+
+        this.starfield = this.add.tileSprite(0, 0, width, height, 'stars')
             .setOrigin(0, 0)
             .setScrollFactor(0)
             .setDepth(-1)
+
+        this.cameras.main.ignore(this.starfield)
+        if (this.uiCamera) this.uiCamera.ignore(this.starfield)
+        if (this.minimap) this.minimap.ignore(this.starfield)
     }
 
     private setupMinimap = (mapSize: number, margin: number) => {
@@ -362,6 +399,7 @@ export class MainScene extends Phaser.Scene {
 
         if (!this.minimapBorder) {
             this.minimapBorder = this.add.graphics().setScrollFactor(0).setDepth(2000)
+            this.uiGroup.add(this.minimapBorder)
         }
 
         this.updateMinimapLayout(mapSize, margin)
@@ -426,25 +464,78 @@ export class MainScene extends Phaser.Scene {
             10
         )
 
+        this.uiGroup.add(bg)
+
         this.waveTextDisplay = this.add.text(
             20, 20, '',
             { ...style, color: '#ff0000', fontSize: this.isMobile ? '16px' : '20px' }
         ).setScrollFactor(0).setDepth(1000)
+
+        this.uiGroup.add(this.waveTextDisplay)
 
         const tableTop = 50
 
         this.rankColumn = this.add.text(20, tableTop, '', style)
             .setScrollFactor(0).setDepth(1000)
 
+        this.uiGroup.add(this.rankColumn)
+
         this.nameColumn = this.add.text(this.isMobile ? 50 : 60, tableTop, '', style)
             .setScrollFactor(0).setDepth(1000)
+
+        this.uiGroup.add(this.nameColumn)
 
         this.scoreColumn = this.add.text(20 + (this.isMobile ? 160 : 250), tableTop, '', { ...style, align: 'right' })
             .setOrigin(1, 0).setScrollFactor(0).setDepth(1000)
 
+        this.uiGroup.add(this.scoreColumn)
+
         if (this.minimap) {
             this.minimap.ignore([this.rankColumn, this.nameColumn, this.scoreColumn, bg, this.waveTextDisplay])
         }
+    }
+
+    private setupCameras = () => {
+        this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height)
+        this.uiCamera.setScroll(0, 0)
+
+        if (this.starfield) this.uiCamera.ignore(this.starfield)
+
+        this.cameras.main.ignore(this.uiGroup)
+
+        if (this.minimap) this.minimap.ignore(this.uiGroup)
+
+        this.uiCamera.ignore(this.otherPlayers)
+        this.uiCamera.ignore(this.bullets)
+        this.uiCamera.ignore(this.heals)
+        this.uiCamera.ignore(this.obstaclesGroup)
+
+        this.backgroundCamera.ignore(this.otherPlayers)
+        this.backgroundCamera.ignore(this.bullets)
+        this.backgroundCamera.ignore(this.heals)
+        this.backgroundCamera.ignore(this.obstaclesGroup)
+        this.backgroundCamera.ignore(this.uiGroup)
+
+        if (this.playerContainer) this.backgroundCamera.ignore(this.playerContainer)
+
+        const mainCamera = this.cameras.main
+
+        this.cameras.remove(this.backgroundCamera, false)
+        this.cameras.addExisting(this.backgroundCamera)
+
+        this.cameras.remove(mainCamera, false)
+        this.cameras.addExisting(mainCamera)
+
+        if (this.minimap) {
+            this.cameras.remove(this.minimap, false)
+            this.cameras.addExisting(this.minimap)
+        }
+
+        this.cameras.remove(this.uiCamera, false)
+        this.cameras.addExisting(this.uiCamera)
+
+        this.cameras.main = mainCamera
+        this.cameras.main.transparent = true
     }
     
     private setupObstacles(obstacles: ObstaclesType) {
@@ -454,7 +545,11 @@ export class MainScene extends Phaser.Scene {
 
                 const asteroid = this.add.sprite(worldX, worldY, 'planet')
                 asteroid.setDisplaySize(radius * 2.4, radius * 2.4)
-                asteroid.setDepth(2)
+                asteroid.setDepth(10)
+                this.obstaclesGroup.add(asteroid)
+
+                if (this.uiCamera) this.uiCamera.ignore(asteroid)
+                if (this.backgroundCamera) this.backgroundCamera.ignore(asteroid)
             }
             else if (obs.type === 'rect') {
                 const { worldX, worldY, width, height } = obs as iRectObstacle
@@ -462,7 +557,11 @@ export class MainScene extends Phaser.Scene {
                 const wall = this.add.image(worldX, worldY, 'ship_wall')
                 wall.setOrigin(0, 0)
                 wall.setDisplaySize(width, height)
-                wall.setDepth(2)
+                wall.setDepth(10)
+                this.obstaclesGroup.add(wall)
+
+                if (this.uiCamera) this.uiCamera.ignore(wall)
+                if (this.backgroundCamera) this.backgroundCamera.ignore(wall)
             }
             else if (obs.type === 'compound_rect') {
                 const { worldX, worldY } = obs as iCompoundRectObstacle
@@ -470,7 +569,11 @@ export class MainScene extends Phaser.Scene {
                 const shipImg = this.add.image(worldX, worldY, 'ship_wall')
                 shipImg.setOrigin(0, 0)
                 shipImg.setDisplaySize(150, 335) 
-                shipImg.setDepth(2)
+                shipImg.setDepth(10)
+                this.obstaclesGroup.add(shipImg)
+
+                if (this.uiCamera) this.uiCamera.ignore(shipImg)
+                if (this.backgroundCamera) this.backgroundCamera.ignore(shipImg)
             }
         })
     }
@@ -486,9 +589,13 @@ export class MainScene extends Phaser.Scene {
 
         this.joystickBase = this.add.circle(x, y, 60, 0x888888, 0.4)
             .setScrollFactor(0).setDepth(10000)
+
+        this.uiGroup.add(this.joystickBase)
         
         this.joystickThumb = this.add.circle(x, y, 30, 0xcccccc, 0.8)
             .setScrollFactor(0).setDepth(10001)
+
+        this.uiGroup.add(this.joystickThumb)
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, x, y)
@@ -505,10 +612,6 @@ export class MainScene extends Phaser.Scene {
                 this.joystickThumb?.setPosition(x, y)
             }
         })
-
-        if (this.minimap) {
-            this.minimap.ignore([this.joystickBase, this.joystickThumb])
-        }
     }
 
     private checkCollision = (nx: number, ny: number): boolean => {
@@ -564,12 +667,16 @@ export class MainScene extends Phaser.Scene {
             blendMode: 'ADD',
             emitting: false
         })
+        explosion.setDepth(10)
 
         explosion.explode(40)
 
         this.time.delayedCall(600, () => {
             explosion.destroy()
         })
+
+        if (this.uiCamera) this.uiCamera.ignore(explosion)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(explosion)
     }
 
     private createBulletImpact = (x: number, y: number) => {
@@ -583,12 +690,16 @@ export class MainScene extends Phaser.Scene {
             blendMode: 'ADD',
             emitting: false
         })
+        sparks.setDepth(10)
 
         sparks.explode(10)
 
         this.time.delayedCall(200, () => {
             sparks.destroy()
         })
+
+        if (this.uiCamera) this.uiCamera.ignore(sparks)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(sparks)
     }
     
     private handleBulletHit = (bulletId: string) => {
@@ -680,13 +791,17 @@ export class MainScene extends Phaser.Scene {
                 if (!healSprite) {
                     healSprite = this.heals.create(healData.x, healData.y, 'heal_icon') as Phaser.GameObjects.Sprite
                     healSprite.setData('healId', healData.id)
-                    healSprite.setScale(0.8)
+                    healSprite.setScale(this.isMobile ? 1.2 : 0.8)
                     healSprite.setTint(0x00ff00)
+                    healSprite.setDepth(10)
                 }
 
                 healSprite.setPosition(healData.x, healData.y)
                 healSprite.setActive(healData.active)
                 healSprite.setVisible(healData.active)
+
+                if (this.uiCamera) this.uiCamera.ignore(healSprite)
+                if (this.backgroundCamera) this.backgroundCamera.ignore(healSprite)
             })
         })
 
@@ -896,18 +1011,21 @@ export class MainScene extends Phaser.Scene {
             .setScrollFactor(0).setDepth(20002)
             .on('pointerdown', () => this.changeSpectatorTarget(-1))
 
+        this.uiGroup.add(this.specLeftBtn)
+
         this.specRightBtn = this.add.text(this.scale.width - 100, centerY, '▶', { fontSize: '48px', color: '#ffffff', backgroundColor: '#00000088', padding: {x:10, y:10} })
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0).setDepth(20002)
             .on('pointerdown', () => this.changeSpectatorTarget(1))
 
-        this.spectatorNameText = this.add.text(this.scale.width / 2, centerY + 150, '', { fontSize: '24px', color: '#00ff00' })
-            .setOrigin(0.5).setScrollFactor(0).setDepth(20002)
+        this.uiGroup.add(this.specRightBtn)
 
-            
-        if (this.minimap) {
-            this.minimap.ignore([this.specLeftBtn, this.specRightBtn, this.spectatorNameText])
-        }
+        this.spectatorNameText = this.add.text(this.scale.width / 2, centerY + 150, '', { fontSize: '24px', color: '#00ff00' })
+            .setOrigin(0.5)
+            .setScrollFactor(0)
+            .setDepth(20002)
+
+        this.uiGroup.add(this.spectatorNameText)
 
         this.updateSpectatorUI()
     }
@@ -971,6 +1089,12 @@ export class MainScene extends Phaser.Scene {
             strokeThickness: 8
         }).setOrigin(0.5).setScrollFactor(0).setDepth(30000).setAlpha(0)
 
+        this.uiGroup.add(waveText)
+
+        this.cameras.main.ignore(waveText)
+        if (this.minimap) this.minimap.ignore(waveText)
+        if (this.backgroundCamera) this.backgroundCamera.ignore(waveText)
+
         this.tweens.add({
             targets: waveText,
             alpha: 1,
@@ -989,10 +1113,6 @@ export class MainScene extends Phaser.Scene {
                 })
             }
         })
-
-        if (this.minimap) {
-            this.minimap.ignore([waveText])
-        }
     }
 
     private updateOtherPlayersRendering() {
@@ -1041,7 +1161,6 @@ export class MainScene extends Phaser.Scene {
         let ranks = '🏆\n\n'
         let names = 'PILOT\n\n'
         let scores = 'SCORE\n\n'
-
 
         data.forEach((player, index) => {
             const name = player.username || 'Unknown'
