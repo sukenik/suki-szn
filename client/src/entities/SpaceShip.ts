@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { GAME_SETTINGS } from '../../../shared/consts'
 import type { iPlayer } from '../../../shared/types'
+import type { MainScene } from '../main'
 
 const { MAX_HEALTH, PLAYER_SIZE } = GAME_SETTINGS
 
@@ -18,12 +19,11 @@ export class SpaceShip extends Phaser.GameObjects.Container {
     public targetRotation?: number
 
     constructor(
-        scene: Phaser.Scene,
+        scene: MainScene,
         x: number,
         y: number,
         playerInfo: iPlayer,
-        isMainPlayer: boolean,
-        isSurvival: boolean
+        isMainPlayer: boolean
     ) {
         super(scene, x, y)
 
@@ -42,7 +42,7 @@ export class SpaceShip extends Phaser.GameObjects.Container {
         this.ship = scene.add.sprite(0, 0, 'ship')
         this.ship.setDisplaySize(PLAYER_SIZE, PLAYER_SIZE)
 
-        const isFriendlyColor = isSurvival && !playerInfo.id.includes('Bot')
+        const isFriendlyColor = scene.getIsSurvival() && !playerInfo.id.includes('Bot')
 
         if (!isMainPlayer) {
             isFriendlyColor ? this.ship.setTint(0x00aaff) : this.ship.setTint(0xff0000)
@@ -69,10 +69,14 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         this.setDepth(isMainPlayer ? 10 : 5)
         scene.cameras.main.ignore(this.marker)
-        
+
         scene.add.existing(this)
-        
+
         this.redrawHealthBar()
+
+        if (scene.getIsMobile()) {
+            this.setScale(1.7)
+        }
     }
 
     public redrawHealthBar() {
