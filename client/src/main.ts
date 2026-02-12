@@ -604,7 +604,9 @@ export class MainScene extends Phaser.Scene {
         this.uiGroup.add(this.joystickThumb)
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-            const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, x, y)
+            if (!this.joystickBase) return
+
+            const dist = Phaser.Math.Distance.Between(pointer.x, pointer.y, this.joystickBase.x, this.joystickBase.y)
 
             if (dist < this.JOYSTICK_RADIUS) {
                 this.joystickPointer = pointer
@@ -612,10 +614,10 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-            if (this.joystickPointer === pointer) {
+            if (this.joystickPointer === pointer && this.joystickBase && this.joystickThumb) {
                 this.joystickPointer = undefined
                 this.joystickVector.set(0, 0)
-                this.joystickThumb?.setPosition(x, y)
+                this.joystickThumb.setPosition(this.joystickBase.x, this.joystickBase.y)
             }
         })
     }
