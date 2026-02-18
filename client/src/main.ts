@@ -38,16 +38,15 @@ export class MainScene extends Phaser.Scene {
     private spectatorIndex: number = 0
     private isSurvival = false
     private numericIdMap = new Map<number, string>()
+    private respawnTime: number = 10000
 
     private joystickBase?: Phaser.GameObjects.Arc
     private joystickThumb?: Phaser.GameObjects.Arc
     private joystickPointer?: Phaser.Input.Pointer
-    private deathOverlay?: Phaser.GameObjects.Rectangle
-    private deathText?: Phaser.GameObjects.Text
-    private respawnTimerText?: Phaser.GameObjects.Text
     private specLeftBtn?: Phaser.GameObjects.Text
     private specRightBtn?: Phaser.GameObjects.Text
     private spectatorNameText?: Phaser.GameObjects.Text
+    private spectatorRespawnTimeText?: Phaser.GameObjects.Text
     private waveTextDisplay?: Phaser.GameObjects.Text
 
     public getIsMobile = () => this.isMobile
@@ -716,7 +715,6 @@ export class MainScene extends Phaser.Scene {
     private setupNetworkEvents = () => {
         this.socket.on(GAME_EVENTS.ID_MAPPING, (data: { id: string, numId: number }) => {
             this.numericIdMap.set(data.numId, data.id)
-            console.log(this.numericIdMap)
         })
 
         this.socket.on(GAME_EVENTS.SERVER_UPDATE, (buffer: ArrayBuffer) => {
@@ -914,7 +912,7 @@ export class MainScene extends Phaser.Scene {
 
             if (data.playerId === this.socket.id) {
                 targetShip = this.playerContainer
-                this.handleLocalDeath()
+                this.handleLocalDeath(data.respawnIn)
             }
             else {
                 this.otherPlayers.getChildren().forEach(obj => {
@@ -936,7 +934,6 @@ export class MainScene extends Phaser.Scene {
             if (data.playerId === this.socket.id) {
                 targetShip = this.playerContainer
                 this.isDead = false
-                this.respawnTimerText?.setVisible(false)
                 this.cleanSpectatorUI()
             }
             else {
@@ -964,7 +961,6 @@ export class MainScene extends Phaser.Scene {
             this.isDead = false
             this.isSurvival = false
 
-            this.hideDeathScreen()
             this.cleanSpectatorUI()
 
             const errorPage = document.getElementById('error-screen')!
@@ -1024,9 +1020,10 @@ export class MainScene extends Phaser.Scene {
         this.handleBulletHit(data.bulletId)
     }
 
-    private handleLocalDeath() {
+    private handleLocalDeath(respawnTime: number) {
         this.isDead = true
         this.spectatorIndex = 0
+        this.respawnTime = respawnTime
 
         if (this.playerContainer) {
             this.playerContainer.setAlpha(0.5)
@@ -1053,14 +1050,15 @@ export class MainScene extends Phaser.Scene {
             .setDepth(20002)
 
         this.uiGroup.add(this.spectatorNameText)
+        
+        this.spectatorRespawnTimeText = this.add.text(this.scale.width / 2, 150, '', { fontSize: '24px', color: '#ff0000' })
+            .setOrigin(0.5)
+            .setScrollFactor(0)
+            .setDepth(20002)
+
+        this.uiGroup.add(this.spectatorRespawnTimeText)
 
         this.updateSpectatorUI()
-    }
-
-    private hideDeathScreen() {
-        this.deathOverlay?.setVisible(false)
-        this.deathText?.setVisible(false)
-        this.respawnTimerText?.setVisible(false)
     }
 
     private changeSpectatorTarget(dir: number) {
@@ -1082,10 +1080,20 @@ export class MainScene extends Phaser.Scene {
             this.spectatorNameText?.setText(`WAITING FOR RESPAWN...`)
         }
 
+        const respawnTimeInterval = setInterval(() => {
+            this.respawnTime -= 1000
+            this.spectatorRespawnTimeText?.setText(`Respawn in: ${this.respawnTime / 1000}s`)
+
+            if (this.respawnTime <= 0) {
+                clearInterval(respawnTimeInterval)
+            }
+        }, 1000)
+
         if (this.minimap) {
-            this.spectatorNameText && this.minimap.ignore([this.spectatorNameText])
-            this.specRightBtn && this.minimap.ignore([this.specRightBtn])
-            this.specLeftBtn && this.minimap.ignore([this.specLeftBtn])
+            this.spectatorNameText && this.minimap.ignore(this.spectatorNameText)
+            this.specRightBtn && this.minimap.ignore(this.specRightBtn)
+            this.specLeftBtn && this.minimap.ignore(this.specLeftBtn)
+            this.spectatorRespawnTimeText && this.minimap.ignore(this.spectatorRespawnTimeText)
         }
     }
 
@@ -1185,9 +1193,11 @@ export class MainScene extends Phaser.Scene {
         this.specLeftBtn?.destroy()
         this.specRightBtn?.destroy()
         this.spectatorNameText?.destroy()
+        this.spectatorRespawnTimeText?.destroy()
         this.specLeftBtn = undefined
         this.specRightBtn = undefined
         this.spectatorNameText = undefined
+        this.spectatorRespawnTimeText = undefined
     }
 
     private setLeaderboardText(data: iLeaderboardUpdate[]) {
