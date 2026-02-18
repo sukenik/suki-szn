@@ -5,12 +5,12 @@ import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuidv4 } from 'uuid'
 import { GAME_ERRORS, GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
-import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, ObstaclesType } from '../../shared/types'
 import { recordMiss, saveBufferToFile } from './ai/recordData'
 import { supabase } from './db'
 import { AStarPathfinder } from './logic/AStarPathfinder'
 import { Bot } from './logic/Bot'
-import { broadcastLeaderboard, getNewHealPacks, setBots, updateBullets, updateHeals, updatePlayerPhysics } from './logic/gameUtils'
+import { broadcastLeaderboard, getNewHealPacks, getServerUpdateBuffer, setBots, updateBullets, updateHeals, updatePlayerPhysics } from './logic/gameUtils'
 import { GridManager } from './logic/GridManager'
 import { SurvivalManager } from './logic/SurvivalManager'
 import { generateNewLocation, startCountdown, stopCountdown } from './logic/survivalUtils'
@@ -69,6 +69,19 @@ const bullets: iBullet[] = []
 let healPacks: iHealPack[] = getNewHealPacks()
 let lastUpdate = Date.now()
 
+const multiplayerIdMap = new Map<string, number>()
+let nextMultiplayerId = 1
+
+const getNumericId = (id: string) => {
+    if (!multiplayerIdMap.has(id)) {
+        const numId = nextMultiplayerId++
+        multiplayerIdMap.set(id, numId)
+        io.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+    }
+
+    return multiplayerIdMap.get(id)!
+}
+
 export const gridManager = new GridManager(WORLD_WIDTH, WORLD_HEIGHT, 50)
 export const pathfinder = new AStarPathfinder(gridManager)
 export const survivalManagers = new Map<string, SurvivalManager>()
@@ -106,13 +119,15 @@ if (isTrainingMode) {
         setBots(bots, 10,
             (bulletData) => {
                 bullets.push(bulletData)
-                io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
             }
         )
     } catch (error) {
         console.log(error)
     }
 }
+
+// TODO: Remove after testing
+let counter = 0
 
 setInterval(async () => {
     const now = Date.now()
@@ -142,8 +157,7 @@ setInterval(async () => {
 
     bots.forEach(bot => {
         if (!bot.roomId) {
-            // TODO: fix
-            bot.update(multiplayerPlayers, healPacks, dt, true)
+            bot.update(multiplayerPlayers, bots, healPacks, dt, true)
             players[bot.id] = { ...bot } as iPlayer
             multiplayerPlayers[bot.id] = players[bot.id]
         }
@@ -171,38 +185,39 @@ setInterval(async () => {
             combinedPlayers[bot.id] = bot as iPlayer
         })
 
-        const updateData: iServerUpdateData = {
-            obstacles,
-            players: combinedPlayers,
-            bullets: manager.getBullets(),
-            heals: manager.getHealPacks(),
-            wave: manager.getCurrentWave(),
-        }
+        const bullets = manager.getBullets()
+        const heals = manager.getHealPacks()
 
-        io.to(roomId).emit(GAME_EVENTS.SERVER_UPDATE, updateData)
+        const buffer = getServerUpdateBuffer(
+            combinedPlayers, bullets, heals, manager
+        )
+
+        io.to(roomId).emit(GAME_EVENTS.SERVER_UPDATE, buffer)
     })
 
     finishedManagers.forEach(roomId => {
         survivalManagers.delete(roomId)
     })
 
-    const multiplayerUpdate: iServerUpdateData = {
-        players: multiplayerPlayers,
-        bullets,
-        heals: healPacks,
-        obstacles
-    }
+    const buffer = getServerUpdateBuffer(
+        multiplayerPlayers, bullets, healPacks, undefined, getNumericId
+    )
     io.sockets.sockets.forEach((socket) => {
         if (!playersInSurvival.has(socket.id)) {
             const otherPlayers = { ...multiplayerPlayers }
             delete otherPlayers[socket.id]
 
-            socket.emit(GAME_EVENTS.SERVER_UPDATE, {
-                ...multiplayerUpdate,
-                players: otherPlayers
-            })
+            socket.emit(GAME_EVENTS.SERVER_UPDATE, buffer)
         }
     })
+
+    const processTime = Date.now() - now
+
+    // TODO: Remove after testing
+    if (processTime > (1000 / TICK_RATE)) {
+        console.warn(`Counter: ${++counter}`)
+        console.warn(`⚠️ Server Lag Detected! Tick took ${processTime}ms (Max allowed: ${(1000 / TICK_RATE)}ms)`)
+    }
 
 }, 1000 / TICK_RATE)
 
@@ -222,10 +237,17 @@ io.on('connection', async (socket) => {
     
             const manager = survivalManagers.get(roomId)
 
-            manager && manager.broadcastLeaderboard()
+            if (manager) {
+                manager.broadcastLeaderboard()
+                manager.syncPlayerMapping(socket.id)
+            }
         }
         else {
             await broadcastLeaderboard()
+
+            multiplayerIdMap.forEach((numId, id) => {
+                io.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+            })
         }
     })
 
@@ -288,6 +310,22 @@ io.on('connection', async (socket) => {
                 }
             }
 
+            survivalManagers.forEach((manager, roomId) => {
+                const roomPlayers = survivalRooms.get(roomId)?.players || []
+
+                if (roomPlayers.includes(newId)) {
+                    manager.updatePlayerId(oldId, newId)
+                }
+            })
+
+            if (multiplayerIdMap.has(oldId)) {
+                const numId = multiplayerIdMap.get(oldId)!
+                multiplayerIdMap.delete(oldId)
+                multiplayerIdMap.set(newId, numId)
+
+                io.emit(GAME_EVENTS.ID_MAPPING, { id: newId, numId })
+            }
+
             io.emit(GAME_EVENTS.PLAYER_LEFT, oldId)
             socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[newId])
 
@@ -327,9 +365,6 @@ io.on('connection', async (socket) => {
 
             console.log('New user created in DB:', user.username)
         }
-
-        // TODO: Remove any
-        (socket as any).userData = user
 
         players[socket.id] = {
             id: socket.id,
@@ -409,7 +444,7 @@ const setupGameEvents = async (socket: Socket) => {
             return
         }
 
-        if (room.isStarted) {
+        if (room.isStarted && !room.players.includes(socket.id)) {
             socket.emit('error', GAME_ERRORS.GAME_IN_PROGRESS)
             return
         }
@@ -421,7 +456,7 @@ const setupGameEvents = async (socket: Socket) => {
 
         socket.join(roomId)
 
-        socket.emit(GAME_EVENTS.ROOM_JOINED, { roomId })
+        socket.emit(GAME_EVENTS.ROOM_JOINED, { roomId, isInProgress: room.isStarted })
 
         const playersInRoom = room.players.map(pid => ({
             id: pid,
@@ -480,14 +515,12 @@ const setupGameEvents = async (socket: Socket) => {
 
             if (Object.keys(playersInRoom).some(id => id === socket.id)) {
                 manager.addBullet(bulletData)
-                io.to(roomId).emit(GAME_EVENTS.NEW_BULLET, bulletData)
                 inSurvival = true
             }
         })
 
         if (!inSurvival) {
             bullets.push(bulletData)
-            io.emit(GAME_EVENTS.NEW_BULLET, bulletData)
         }
     })
 
@@ -526,7 +559,7 @@ const setupGameEvents = async (socket: Socket) => {
                     if (room.players.some(pid => pid == socket.id)) {
                         room.players = room.players.filter(pid => pid !== socket.id)
                         room.readyStatus.delete(socket.id)
-        
+
                         if (room.players.length === 0) {
                             survivalRooms.delete(roomId)
                         }
@@ -542,6 +575,10 @@ const setupGameEvents = async (socket: Socket) => {
                     }
                 })
 
+                survivalManagers.forEach(manager => {
+                    manager.removePlayer(socket.id)
+                })
+                multiplayerIdMap.delete(socket.id)
                 delete players[socket.id]
                 io.emit(GAME_EVENTS.PLAYER_LEFT, socket.id)
             }

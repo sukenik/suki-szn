@@ -75,9 +75,11 @@ export const startGame = async (
 				lobby.show(roomId)
 			})
 
-			socket.on(GAME_EVENTS.ROOM_JOINED, (data: { roomId: string }) => {
+			socket.on(GAME_EVENTS.ROOM_JOINED, (data: { roomId: string, isInProgress: boolean }) => {
 				clearLoadingPage()
-				lobby.show(data.roomId)
+				data.isInProgress
+					? launchPhaser(socket, loginScreen)
+					: lobby.show(data.roomId)
 			})
 
 			socket.on(GAME_EVENTS.GAME_START, () => {

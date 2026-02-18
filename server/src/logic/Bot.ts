@@ -45,6 +45,8 @@ export class Bot implements iPlayer {
     private onRecordShot?: RecordCallback
     private lastShotTime: number = 0
     private readonly SHOOT_COOLDOWN = 200
+    private canSeeMoveTarget: boolean = false
+    private lastSeparation = { x: 0, y: 0 }
     private model?: tf.LayersModel
 
     constructor(
@@ -63,14 +65,12 @@ export class Bot implements iPlayer {
 
     public update(
         allPlayers: { [id: string]: iPlayer },
+        allBots: Bot[],
         healPacks: iHealPack[],
         dt: number,
         runAI: boolean
     ) {
         const target = this.findClosestTarget(allPlayers)
-        const allBots = Object.values(allPlayers).filter(
-            player => (player as Bot)?.isBot
-        ) as Bot[]
 
         if (runAI) {
             this.evaluateState(target)
@@ -80,19 +80,19 @@ export class Bot implements iPlayer {
             case BotState.CHASE:
                 if (target) {
                     if (runAI) this.handleNavigation(target)
-                    this.move(target.x, target.y, allBots, dt)
+                    this.move(target.x, target.y, allBots, dt, runAI)
                 }
                 break
             case BotState.ATTACK:
                 if (target) {
-                    const sep = this.applySeparation(allBots, 0, 0, dt)
+                    const sep = this.applySeparation(allBots, 0, 0, dt, runAI)
                     this.x += sep.x
                     this.y += sep.y
 
                     const dist = Math.hypot(this.x - target.x, this.y - target.y)
 
                     if (dist > 150) {
-                        this.move(target.x, target.y, allBots, dt)
+                        this.move(target.x, target.y, allBots, dt, runAI)
                     }
                     else {
                         this.vx = sep.x / dt
@@ -113,7 +113,7 @@ export class Bot implements iPlayer {
                 }
                 break
             case BotState.EVADE:
-                this.doEvade(healPacks, allBots, target, dt)
+                this.doEvade(healPacks, allBots, target, dt, runAI)
                 break
         }
     }
@@ -156,9 +156,11 @@ export class Bot implements iPlayer {
     private handleNavigation(target: iPlayer) {
         const now = Date.now()
 
-        if (now - this.lastPathCalc > 500 || this.isTargetFarFromPath(target)) {
+        if (now - this.lastPathCalc < 500) return
+
+        if (this.currentPath.length === 0 || this.isTargetFarFromPath(target)) {
             this.currentPath = this.pathfinder.findPath(this.x, this.y, target.x, target.y)
-            this.lastPathCalc = now
+            this.lastPathCalc = now + (Math.random() * 200)
         }
     }
 
@@ -175,9 +177,13 @@ export class Bot implements iPlayer {
         targetY: number,
         allBots: Bot[],
         dt: number,
+        runAI: boolean,
         isHeal: boolean = false
     ) {
-        const hasLOSDirect = this.gridManager.hasLineOfSight(this.x, this.y, targetX, targetY)
+        if (runAI) {
+            this.canSeeMoveTarget = this.gridManager.hasLineOfSight(this.x, this.y, targetX, targetY)
+        }
+        const hasLOSDirect = this.canSeeMoveTarget
 
         let finalTargetX = targetX
         let finalTargetY = targetY
@@ -192,6 +198,8 @@ export class Bot implements iPlayer {
         }
 
         if (!hasLOSDirect) {
+            this.handleNavigation({ x: finalTargetX, y: finalTargetY } as iPlayer)
+
             if (this.currentPath.length < 2) {
                 this.currentPath = this.pathfinder.findPath(this.x, this.y, finalTargetX, finalTargetY)
             }
@@ -222,7 +230,7 @@ export class Bot implements iPlayer {
             vy = Math.sin(angleRad) * PLAYER_SPEED * dt
         }
 
-        const separatedVelocity = this.applySeparation(allBots, vx, vy, dt)
+        const separatedVelocity = this.applySeparation(allBots, vx, vy, dt, runAI)
 
         this.x += separatedVelocity.x
         this.y += separatedVelocity.y
@@ -307,7 +315,15 @@ export class Bot implements iPlayer {
         this.lastShotTime = now
     }
 
-    private applySeparation(allBots: Bot[], vx: number, vy: number, dt: number) {
+    private applySeparation(
+        allBots: Bot[],
+        vx: number,
+        vy: number,
+        dt: number,
+        runAI: boolean
+    ) {
+        if (!runAI) return { x: vx + this.lastSeparation.x, y: vy + this.lastSeparation.y }
+
         const MIN_DIST = PLAYER_RADIUS * 2.2
         let pushX = 0
         let pushY = 0
@@ -336,10 +352,11 @@ export class Bot implements iPlayer {
             }
         })
 
+        this.lastSeparation = { x: pushX, y: pushY }
         return { x: vx + pushX, y: vy + pushY }
     }
 
-    private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null, dt: number) {
+    private doEvade(healPacks: iHealPack[], allBots: Bot[], target: iPlayer | null, dt: number, runAI: boolean) {
         const activeHeals = healPacks.filter(h => h.active)
 
         if (activeHeals.length === 0) {
@@ -351,7 +368,7 @@ export class Bot implements iPlayer {
                 const x = Math.max(0, Math.min(WORLD_WIDTH, this.x + Math.cos(angleToRun) * PLAYER_SPEED * dt))
                 const y = Math.max(0, Math.min(WORLD_HEIGHT, this.y + Math.sin(angleToRun) * PLAYER_SPEED * dt))
 
-                this.move(x, y, allBots, dt)
+                this.move(x, y, allBots, dt, runAI)
             }
 
             return
@@ -370,10 +387,10 @@ export class Bot implements iPlayer {
             this.lastPathCalc = now
         }
 
-        this.move(closestHeal.x, closestHeal.y, allBots, dt, true)
+        this.move(closestHeal.x, closestHeal.y, allBots, dt, runAI, true)
     }
 
-    async loadBrain() {
+    public async loadBrain() {
         try {
             const modelPath = path.join(__dirname, '..', 'ai', MODEL_FILE_NAME)
 
@@ -393,7 +410,7 @@ export class Bot implements iPlayer {
         }
     }
 
-    shouldIShoot(distance: number, target: iPlayer, relativeAngle: number): boolean {
+    private shouldIShoot(distance: number, target: iPlayer, relativeAngle: number): boolean {
         if (distance > 500) return false
         if (distance < 250 && relativeAngle < 0.17) return true
 

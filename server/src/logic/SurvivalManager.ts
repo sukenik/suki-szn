@@ -20,6 +20,8 @@ export class SurvivalManager {
 	private roomPlayersSnapshot: { [id: string]: iPlayer } = {}
 	private leaderboardDataSnapshot: iLeaderboardUpdate[] = []
 	private updateCounter = 0
+	private socketIdToNumericId = new Map<string, number>()
+    private nextNumericId = 1
 
 	constructor(
         private io: Server,
@@ -30,6 +32,9 @@ export class SurvivalManager {
 		this.leaderboardDataSnapshot = playerNamesInRoom.map(
 			name => ({ username: name, high_score: 0 })
 		)
+		this.room.players.forEach(playerId => {
+			this.getNumericId(playerId)
+		})
     }
 
 	public getBots() { return this.bots }
@@ -53,22 +58,25 @@ export class SurvivalManager {
         this.currentWave++
         const botsToSpawn = this.currentWave
 
+		setBots(
+			this.bots,
+			botsToSpawn,
+			(bulletData) => {
+				this.addBullet(bulletData)
+			},
+			this.room.id
+		)
+
+		this.bots.forEach(bot => {
+			this.getNumericId(bot.id)
+		})
+
         console.log(`[Room ${this.room.id}] Starting Wave ${this.currentWave} with ${botsToSpawn} bots`)
 
         this.io.to(this.room.id).emit(GAME_EVENTS.WAVE_STARTED, {
             wave: this.currentWave,
             botCount: botsToSpawn
         })
-
-		setBots(
-			this.bots,
-			botsToSpawn,
-			(bulletData) => {
-				this.addBullet(bulletData)
-				this.io.to(this.room.id).emit(GAME_EVENTS.NEW_BULLET, bulletData)
-			},
-			this.room.id
-		)
     }
 
 	public update(roomPlayers: { [id: string]: iPlayer }, dt: number) {
@@ -84,9 +92,9 @@ export class SurvivalManager {
 		this.updateCounter++
 
         this.bots.forEach((bot, index) => {
-			const shouldUpdateAI = (index % 2 === this.updateCounter % 2)
+			const isMyTurn = (this.updateCounter % 10) === (index % 10)
 
-			bot.update(allEntitiesInRoom, this.healPacks, dt, shouldUpdateAI)
+			bot.update(allEntitiesInRoom, this.bots, this.healPacks, dt, isMyTurn)
 		})
 
         this.updateBullets(allEntitiesInRoom, dt)
@@ -102,6 +110,8 @@ export class SurvivalManager {
     }
 
 	private updateBullets(roomPlayers: { [id: string]: iPlayer }, dt: number) {
+		const botIds = new Set(this.bots.map(b => b.id))
+
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i]
 
@@ -115,14 +125,24 @@ export class SurvivalManager {
 				continue
 			}
 
+			if (
+				bullet.x < 0 || 
+				bullet.x > WORLD_WIDTH || 
+				bullet.y < 0 || 
+				bullet.y > WORLD_HEIGHT
+			) {
+				this.bullets.splice(i, 1)
+				continue
+	        }
+
 			let bulletDestroyed = false
-	
+			const isShooterBot = botIds.has(bullet.playerId)
+
 			for (const id in roomPlayers) {
 				const player = roomPlayers[id]
 
 				if (!player || player.hp <= 0 || bullet.playerId === id) continue
 
-				const isShooterBot = this.bots.some(b => b.id === bullet.playerId)
 				const isTargetBot = (player as Bot)?.isBot
 
 				if (isShooterBot && isTargetBot) continue
@@ -132,21 +152,14 @@ export class SurvivalManager {
 
 				if (dist < PLAYER_RADIUS) {
 					this.handleHit(player, bullet.id, roomPlayers, bullet.playerId)
-					this.bullets.splice(i, 1)
+					bulletDestroyed = true
 					break
 				}
-	
-				if (bulletDestroyed) continue
-		
-				if (
-					bullet.x < 0
-					|| bullet.x > WORLD_WIDTH
-					|| bullet.y < 0
-					|| bullet.y > WORLD_HEIGHT
-				) {
-					this.bullets.splice(i, 1)
-				}
         	}
+
+			if (bulletDestroyed) {
+				this.bullets.splice(i, 1)
+			}
     	}
 	}
 
@@ -291,4 +304,35 @@ export class SurvivalManager {
 		this.isActive = false
 		this.isGameOver = true
     }
+
+	public getNumericId(id: string): number {
+        if (!this.socketIdToNumericId.has(id)) {
+            const numId = this.nextNumericId++
+            this.socketIdToNumericId.set(id, numId)
+
+            this.io.to(this.room.id).emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+        }
+
+        return this.socketIdToNumericId.get(id)!
+    }
+
+	public syncPlayerMapping(socketId: string) {
+		this.socketIdToNumericId.forEach((numId, id) => {
+			this.io.to(socketId).emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+		})
+	}
+
+	public updatePlayerId(oldId: string, newId: string) {
+		if (this.socketIdToNumericId.has(oldId)) {
+			const numId = this.socketIdToNumericId.get(oldId)!
+			this.socketIdToNumericId.delete(oldId)
+			this.socketIdToNumericId.set(newId, numId)
+
+			this.io.to(this.room.id).emit(GAME_EVENTS.ID_MAPPING, { id: newId, numId })
+		}
+	}
+
+	public removePlayer(id: string) {
+		this.socketIdToNumericId.delete(id)
+	}
 }

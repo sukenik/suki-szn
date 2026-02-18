@@ -1,5 +1,5 @@
 export const GAME_SETTINGS = {
-  TICK_RATE: 60,
+  TICK_RATE: 30,
   WORLD_WIDTH: 2000,
   WORLD_HEIGHT: 2000,
   PLAYER_SPEED: 300,
@@ -19,7 +19,6 @@ export const GAME_EVENTS = {
   INPUT_UPDATE: 'inputUpdate',
   SERVER_UPDATE: 'serverUpdate',
   CURRENT_PLAYERS: 'currentPlayers',
-  NEW_BULLET: 'newBullet',
   PLAYER_SHOOT: 'playerShoot',
   PLAYER_HIT: 'playerHit',
   PLAYER_DIED: 'playerDied',
@@ -40,6 +39,7 @@ export const GAME_EVENTS = {
   PLAYER_RESPAWN: 'playerRespawn',
   GAME_OVER: 'gameOver',
   SURVIVAL_LEADERBOARD_UPDATE: 'survivalLeaderboardUpdate',
+  ID_MAPPING: 'idMapping',
 } as const
 
 export const GAME_MODE = {
