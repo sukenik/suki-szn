@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@400;700&display=swap');
 
-body, html {
+body,
+html {
     margin: 0;
     padding: 0;
     width: 100%;
@@ -11,7 +12,10 @@ body, html {
     color: white;
 }
 
-html, body, #game-container, canvas {
+html,
+body,
+#game-container,
+canvas {
     width: 100% !important;
     height: 100% !important;
     margin: 0;
@@ -53,7 +57,11 @@ html, body, #game-container, canvas {
     -webkit-text-fill-color: transparent;
 }
 
-.rocket { font-size: 3rem; display: block; margin-bottom: 10px; }
+.rocket {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 10px;
+}
 
 .google-btn {
     display: flex;
@@ -78,7 +86,10 @@ html, body, #game-container, canvas {
     box-shadow: 0 5px 15px rgba(255, 255, 255, 0.2);
 }
 
-.google-btn img { width: 20px; height: 20px; }
+.google-btn img {
+    width: 20px;
+    height: 20px;
+}
 
 .footer-note {
     margin-top: 1.5rem;
@@ -180,22 +191,42 @@ html, body, #game-container, canvas {
     animation: spin 1s ease-in-out infinite;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 
 .mode-options {
     display: flex;
     justify-content: center;
-    gap: 15px;
+    gap: 20px;
+}
+
+.login-btn {
+    cursor: pointer;
+    background: black;
+    color: white;
+    border: 1px solid white;
+    border-radius: 5px;
+    margin-top: 10px;
+}
+
+.login-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 .login-btn span {
     display: block;
     font-size: 12px;
     opacity: 0.7;
-    font-weight: normal;
+    font-weight: lighter;
 }
 
-#survival-lobby, #error-screen, #mode-selector, #app-loading-screen {
+#survival-lobby,
+#error-screen,
+#mode-selector,
+#app-loading-screen {
     position: fixed;
     inset: 0;
     background: url('/assets/stars.png') repeat;
@@ -210,7 +241,7 @@ html, body, #game-container, canvas {
     border: 2px solid #00f2ff;
     border-radius: 15px;
     padding: 30px;
-    width: 400px;
+    width: 500px;
     text-align: center;
     box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
 }
@@ -251,10 +282,18 @@ html, body, #game-container, canvas {
     min-width: 59px;
 }
 
-.status-ready { background: #2ecc71; color: white; }
-.status-not-ready { background: #e74c3c; color: white; }
+.status-ready {
+    background: #2ecc71;
+    color: white;
+}
 
-.ready-btn, .back-to-menu-btn {
+.status-not-ready {
+    background: #e74c3c;
+    color: white;
+}
+
+.ready-btn,
+.back-to-menu-btn {
     margin-top: 20px;
     padding: 15px 40px;
     font-weight: bold;
@@ -262,16 +301,37 @@ html, body, #game-container, canvas {
     border: none;
     border-radius: 5px;
     min-width: 200px;
-}
-
-.ready-btn.ready { background: #2ecc71; }
-.ready-btn.not-ready { background: #e74c3c; }
-
-.back-to-menu-btn {
     background: black;
     color: white;
     border: 1px solid white;
 }
 
-.timer-visible { color: #2ecc71; font-size: 24px; margin: 15px 0; display: block; }
-.timer-hidden { display: none; }
+.ready-btn.ready {
+    background: #2ecc71;
+}
+
+.ready-btn.not-ready {
+    background: #e74c3c;
+}
+
+.timer-visible {
+    color: #2ecc71;
+    font-size: 24px;
+    margin: 15px 0;
+    display: block;
+}
+
+.timer-hidden {
+    display: none;
+}
+
+.mode-wrapper {
+    display: flex;
+    flex-direction: column;
+}
+
+.mode-photo {
+    height: 200px;
+    border-radius: 15px;
+    border: 1px solid white;
+}
