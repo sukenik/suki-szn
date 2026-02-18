@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from 'uuid'
 import { gridManager, io, isTrainingMode, obstacles, pathfinder } from '..'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../../shared/consts'
-import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iRectObstacle, iSurvivalLeaderboardUpdate, iLeaderboardUpdate } from '../../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iLeaderboardUpdate, iPlayer, iRectObstacle } from '../../../shared/types'
 import { recordHit, recordShotAttempt } from '../ai/recordData'
 import { BULLET_DAMAGE } from '../consts'
 import { supabase } from '../db'
 import { Bot, ShootCallback } from './Bot'
+import { SurvivalManager } from './SurvivalManager'
 import { generateNewLocation } from './survivalUtils'
 
 const {
@@ -287,7 +288,7 @@ export const setBots = async (
                 isTrainingMode && recordShotAttempt(bot, target, bulletData.id)
             }
 		)
-	
+
 		await bot.loadBrain()
 	
 		roomId && bot.setRoomId(roomId)
@@ -302,4 +303,58 @@ export const getNewHealPacks = () => {
 		active: true,
 		...generateNewLocation()
 	}))
+}
+
+export const getServerUpdateBuffer = (
+	entities: { [id: string]: iPlayer },
+	bullets: iBullet[],
+	heals: iHealPack[],
+	manager?: SurvivalManager,
+	getNumericId?: (id: string) => number
+) => {
+	const entityList = Object.values(entities)
+
+	const entityCount = entityList.length
+	const bulletCount = bullets.length
+	const healCount = heals.length
+
+	const bufferSize = 3 + (entityCount * 9) + (bulletCount * 6) + (healCount * 5)
+	const buffer = Buffer.alloc(bufferSize)
+	let offset = 0
+
+	buffer.writeUInt8(entityCount, offset)
+	buffer.writeUInt8(bulletCount, offset + 1)
+	buffer.writeUInt8(healCount, offset + 2)
+	offset += 3
+
+	const clampInt16 = (val: number) => Math.max(-32768, Math.min(32767, Math.round(val)))
+
+	entityList.forEach(entity => {
+		const numId = manager
+			? manager.getNumericId(entity.id)
+			: getNumericId!(entity.id)
+
+		buffer.writeUInt16LE(numId, offset)
+		buffer.writeInt16LE(clampInt16(entity.x), offset + 2)
+		buffer.writeInt16LE(clampInt16(entity.y), offset + 4)
+		buffer.writeInt16LE(Math.round(entity.angle % 360), offset + 6)
+		buffer.writeUInt8(Math.max(0, Math.min(255, entity.hp)), offset + 8)
+		offset += 9
+	})
+
+	bullets.forEach(bullet => {
+		buffer.writeInt16LE(clampInt16(bullet.x), offset)
+		buffer.writeInt16LE(clampInt16(bullet.y), offset + 2)
+		buffer.writeInt16LE(Math.round(bullet.angle % 360), offset + 4)
+		offset += 6
+	})
+
+	heals.forEach(heal => {
+		buffer.writeInt16LE(clampInt16(heal.x), offset)
+		buffer.writeInt16LE(clampInt16(heal.y), offset + 2)
+		buffer.writeUInt8(heal.active ? 1 : 0, offset + 4)
+		offset += 5
+	})
+
+	return buffer
 }

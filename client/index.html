@@ -1,106 +1,116 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Suki SZN - Galactic Wars</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
-  </head>
-  <body style="height: 100%; width: 100%; margin: 0; overflow: hidden">
-    <script type="module" src="/src/menus/login/login.ts"></script>
-    <div id="ui-layer">
-      <div id="login-screen" class="card">
-        <div class="logo">
-          <span class="rocket">🚀</span>
-          <h1>Galactic Wars</h1>
-          <h3>By <a target="_blank" style="color: white;" href="https://github.com/sukenik">@sukenik</a></h3>
-        </div>
-        <div id="email-login-form">
-          <input type="text" id="username-input" placeholder="Username" class="login-input">
-          <input type="email" id="email-input" placeholder="Email" class="login-input">
-          <div class="password-wrapper">
-            <input type="password" id="pass-input" placeholder="Password" class="login-input">
-            <span id="toggle-password" class="password-toggle">👁️</span>
-          </div>
 
-          <div class="auth-btns">
-            <button id="email-login-btn" class="secondary-btn">Login</button>
-            <button id="email-reg-btn" class="secondary-btn">Sign-up</button>
-          </div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suki SZN - Galactic Wars</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+</head>
+
+<body style="height: 100%; width: 100%; margin: 0; overflow: hidden">
+  <script type="module" src="/src/menus/login/login.ts"></script>
+  <div id="ui-layer">
+    <div id="login-screen" class="card">
+      <div class="logo">
+        <span class="rocket">🚀</span>
+        <h1>Galactic Wars</h1>
+        <h3>By <a target="_blank" style="color: white;" href="https://github.com/sukenik">@sukenik</a></h3>
+      </div>
+      <div id="email-login-form">
+        <input type="text" id="username-input" placeholder="Username" class="login-input">
+        <input type="email" id="email-input" placeholder="Email" class="login-input">
+        <div class="password-wrapper">
+          <input type="password" id="pass-input" placeholder="Password" class="login-input">
+          <span id="toggle-password" class="password-toggle">👁️</span>
         </div>
 
-        <div class="separator">Or</div>
-        <button id="login-button" class="google-btn">
-          <img src="./assets/Google.png" alt="Google logo">
-          <span>Continue with Google</span>
-        </button>
-
-        <div id="server-status">
-          <div id="spinner"></div>
-          <span id="status-text">Waking up galactic servers...</span>
+        <div class="auth-btns">
+          <button id="email-login-btn" class="secondary-btn">Login</button>
+          <button id="email-reg-btn" class="secondary-btn">Sign-up</button>
         </div>
-        <div id="error">
-          <span id="error-text"></span>
+      </div>
+
+      <div class="separator">Or</div>
+      <button id="login-button" class="google-btn">
+        <img src="./assets/Google.png" alt="Google logo">
+        <span>Continue with Google</span>
+      </button>
+
+      <div id="server-status">
+        <div id="spinner"></div>
+        <span id="status-text">Waking up galactic servers...</span>
+      </div>
+      <div id="error">
+        <span id="error-text"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="mode-selector" style="display: none;" class="auth-card">
+    <div class="mode-selector-card">
+      <h2>CHOOSE MISSION</h2>
+      <div class="mode-options">
+        <div class="mode-wrapper">
+          <img class="mode-photo" src="./assets/multiplayer.png" alt="multiplayer photo">
+          <button id="multiplayer-btn" class="login-btn">
+            🚀 MULTIPLAYER
+            <span>Open Arena - No Bots</span>
+          </button>
+        </div>
+        <div class="mode-wrapper">
+          <img class="mode-photo" src="./assets/multiplayer.png" alt="survival photo">
+          <button id="survival-btn" class="login-btn">
+            🛡️ SURVIVAL MODE
+            <span>Co-op vs Waves of Bots</span>
+          </button>
         </div>
       </div>
     </div>
+  </div>
 
-    <div id="mode-selector" style="display: none;" class="auth-card">
-      <div class="mode-selector-card">
-        <h2>CHOOSE MISSION</h2>
-        <div class="mode-options">
-            <button id="multiplayer-btn" class="login-btn">
-              🚀 MULTIPLAYER
-              <span>Open Arena - No Bots</span>
-            </button>
-            <button id="survival-btn" class="login-btn">
-              🛡️ SURVIVAL MODE
-              <span>Co-op vs Waves of Bots</span>
-            </button>
-        </div>
+  <div id="survival-lobby" style="display: none;">
+    <div class="lobby-card">
+      <h1>SURVIVAL MODE</h1>
+      <div class="invite-section">
+        <div>Copy the link and invite friends:</div>
+        <input type="text" id="room-link" readonly>
+        <button id="copy-link-btn" class="icon-btn">📋 Copy</button>
       </div>
-    </div>
-
-    <div id="survival-lobby" style="display: none;">
-      <div class="lobby-card">
-        <h1>SURVIVAL MODE</h1>
-        <div class="invite-section">
-          <div>Copy the link and invite friends:</div>
-          <input type="text" id="room-link" readonly>
-          <button id="copy-link-btn" class="icon-btn">📋 Copy</button>
-        </div>
-        <div class="player-list-start-row">
-          <div style="margin-left: 40px;">Player:</div>
-          <div style="margin-right: 25px;">Status:</div>
-        </div>
-        <div id="player-list" class="player-list"></div>
-        <div id="lobby-timer" class="timer-hidden">
-          Starting in: <span id="timer-seconds">10</span>s
-        </div>
-        <div id="ready-help-text" style="font-size: 14px; margin-top: 20px;">
-          If you're ready press the button ⬇️
-        </div>
-        <div style="display: flex; flex-direction: column; align-items: center;">
-          <button id="ready-toggle-btn" class="ready-btn ready">READY</button>
-          <button class="back-to-menu-btn">⬅️ Back to menu</button>
-        </div>
+      <div class="player-list-start-row">
+        <div style="margin-left: 40px;">Player:</div>
+        <div style="margin-right: 25px;">Status:</div>
       </div>
-    </div>
-
-    <div id="error-screen" style="display: none;">
-      <div class="lobby-card">
-        <h1 id="error-title"></h1>
-        <div id="error-description"></div>
-        <div id="survival-list-first-row" class="player-list-start-row" style="display: none;">
-          <div style="margin-left: 40px;">Player:</div>
-          <div style="margin-right: 25px;">Score:</div>
-        </div>
-        <div id="survival-list" class="player-list"></div>
+      <div id="player-list" class="player-list"></div>
+      <div id="lobby-timer" class="timer-hidden">
+        Starting in: <span id="timer-seconds">10</span>s
+      </div>
+      <div id="ready-help-text" style="font-size: 14px; margin-top: 20px;">
+        If you're ready press the button ⬇️
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center;">
+        <button id="ready-toggle-btn" class="ready-btn ready">READY</button>
         <button class="back-to-menu-btn">⬅️ Back to menu</button>
       </div>
     </div>
+  </div>
 
-    <div id="game-container"></div>
-  </body>
+  <div id="error-screen" style="display: none;">
+    <div class="lobby-card">
+      <h1 id="error-title"></h1>
+      <div id="error-description"></div>
+      <div id="survival-list-first-row" class="player-list-start-row" style="display: none;">
+        <div style="margin-left: 40px;">Player:</div>
+        <div style="margin-right: 25px;">Score:</div>
+      </div>
+      <div id="survival-list" class="player-list"></div>
+      <button class="back-to-menu-btn">⬅️ Back to menu</button>
+    </div>
+  </div>
+
+  <div id="game-container"></div>
+</body>
+
 </html>

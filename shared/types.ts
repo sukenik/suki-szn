@@ -40,14 +40,6 @@ export interface iHealPack {
     active: boolean
 }
 
-export interface iServerUpdateData {
-    players: { [id: string]: iPlayer }
-    bullets: iBullet[]
-    heals: iHealPack[]
-    obstacles: ObstaclesType
-    wave?: number
-}
-
 interface iBaseObstacle {
     type: 'circle' | 'rect' | 'compound_rect'
     worldX: number

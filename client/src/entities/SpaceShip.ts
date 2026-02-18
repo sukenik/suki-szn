@@ -44,10 +44,6 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         const isFriendlyColor = scene.getIsSurvival() && !playerInfo.id.includes('Bot')
 
-        if (!isMainPlayer) {
-            isFriendlyColor ? this.ship.setTint(0x00aaff) : this.ship.setTint(0xff0000)
-        }
-
         this.nameTag = scene.add.text(0, -(PLAYER_SIZE / 2 + 25), playerInfo.name || 'Unknown', {
             fontSize: '14px',
             color: '#ffffff',
@@ -59,9 +55,7 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         this.marker = scene.add.circle(
             0, 0, 50,
-            isMainPlayer
-                ? 0x00ff00
-                : isFriendlyColor ? 0x00aaff : 0xff0000
+            isMainPlayer ? 0x00ff00 : 0xff0000
         ).setDepth(100)
 
         this.add([this.emitter, this.ship, this.nameTag, this.healthBar, this.marker])
@@ -76,6 +70,16 @@ export class SpaceShip extends Phaser.GameObjects.Container {
 
         if (scene.getIsMobile()) {
             this.setScale(1.7)
+        }
+
+        if (!isMainPlayer) {
+            if (isFriendlyColor){
+                this.ship.setTint(0x00aaff)  
+                this.marker.fillColor = 0x00aaff
+            }
+            else {
+                this.ship.setTint(0xff0000)
+            }
         }
     }
 

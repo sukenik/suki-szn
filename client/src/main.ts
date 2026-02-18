@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
-import { GAME_EVENTS, GAME_SETTINGS } from '../../shared/consts'
-import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdate, iSurvivalLeaderboardUpdate, iPlayer, iPlayerInputs, iRectObstacle, iServerUpdateData, ObstaclesType } from '../../shared/types'
+import { GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
+import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdate, iPlayer, iPlayerInputs, iRectObstacle, iSurvivalLeaderboardUpdate, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 
@@ -37,16 +37,16 @@ export class MainScene extends Phaser.Scene {
     private isDead: boolean = false
     private spectatorIndex: number = 0
     private isSurvival = false
+    private numericIdMap = new Map<number, string>()
+    private respawnTime: number = 10000
 
     private joystickBase?: Phaser.GameObjects.Arc
     private joystickThumb?: Phaser.GameObjects.Arc
     private joystickPointer?: Phaser.Input.Pointer
-    private deathOverlay?: Phaser.GameObjects.Rectangle
-    private deathText?: Phaser.GameObjects.Text
-    private respawnTimerText?: Phaser.GameObjects.Text
     private specLeftBtn?: Phaser.GameObjects.Text
     private specRightBtn?: Phaser.GameObjects.Text
     private spectatorNameText?: Phaser.GameObjects.Text
+    private spectatorRespawnTimeText?: Phaser.GameObjects.Text
     private waveTextDisplay?: Phaser.GameObjects.Text
 
     public getIsMobile = () => this.isMobile
@@ -68,6 +68,9 @@ export class MainScene extends Phaser.Scene {
     create() {
         this.socket = this.game.registry.get('socket')
         this.isMobile = this.scale.width < 1000
+
+        const authProps = this.socket.auth as { [key: string]: any }
+        this.isSurvival = authProps.mode === GAME_MODE.SURVIVAL
 
         if (this.isMobile) {
             this.currentMapSize = 120
@@ -308,17 +311,6 @@ export class MainScene extends Phaser.Scene {
 
         const vx = Math.cos(angleInRadians) * BULLET_SPEED
         const vy = Math.sin(angleInRadians) * BULLET_SPEED
-
-        const tempId = 'local_' + Date.now()
-        this.createBullet({
-            id: tempId,
-            playerId: this.socket.id,
-            x: container.x,
-            y: container.y,
-            vx: vx,
-            vy: vy,
-            angle: Phaser.Math.RadToDeg(angleInRadians)
-        })
 
         this.socket.emit(GAME_EVENTS.PLAYER_SHOOT, {
             vx,
@@ -721,6 +713,120 @@ export class MainScene extends Phaser.Scene {
     }
 
     private setupNetworkEvents = () => {
+        this.socket.on(GAME_EVENTS.ID_MAPPING, (data: { id: string, numId: number }) => {
+            this.numericIdMap.set(data.numId, data.id)
+        })
+
+        this.socket.on(GAME_EVENTS.SERVER_UPDATE, (buffer: ArrayBuffer) => {
+            const view = new DataView(buffer)
+            let offset = 0
+
+            const entityCount = view.getUint8(offset++)
+            const bulletCount = view.getUint8(offset++)
+            const healCount = view.getUint8(offset++)
+
+            this.bullets.clear(true, true)
+            healCount !== this.heals.children.size && this.heals.clear(true, true)
+
+            const activeEntityIds = new Set<string>()
+
+            for (let i = 0; i < entityCount; i++) {
+                const numId = view.getUint16(offset, true)
+                const x = view.getInt16(offset + 2, true)
+                const y = view.getInt16(offset + 4, true)
+                const angle = view.getInt16(offset + 6, true)
+                const hp = view.getUint8(offset + 8)
+                offset += 9
+
+                const id = this.numericIdMap.get(numId)
+
+                if (!id) continue
+
+                activeEntityIds.add(id)
+
+                if (id === this.socket.id && this.playerContainer) {
+                    const dist = Phaser.Math.Distance.Between(
+                        this.playerContainer.x,
+                        this.playerContainer.y,
+                        x,
+                        y
+                    )
+
+                    if (dist < 100) {
+                        this.playerContainer.x = Phaser.Math.Linear(this.playerContainer.x, x, 0.1)
+                        this.playerContainer.y = Phaser.Math.Linear(this.playerContainer.y, y, 0.1)
+                    }
+                    else {
+                        this.playerContainer.x = x
+                        this.playerContainer.y = y
+                    }
+
+                    this.playerContainer.hp = hp
+                    this.playerContainer.redrawHealthBar()
+                }
+                else {
+                    let otherPlayer: SpaceShip | undefined
+                    this.otherPlayers.getChildren().forEach(obj => {
+                        const p = obj as SpaceShip
+                        if (p.playerId === id) otherPlayer = p
+                    })
+
+                    if (!otherPlayer) {
+                        if (id.includes('Bot')) {
+                            let botNum = activeEntityIds.size
+                            activeEntityIds.forEach(id => !id.includes('Bot') && (botNum--))
+
+                            this.addOtherPlayer({
+                                x, y, angle, hp, id,
+                                name: `Bot-${botNum}`,
+                                firebaseId: '',
+                                kills: 0,
+                                vx: 0,
+                                vy: 0
+                            })
+                        }
+                    }
+                    else {
+                        otherPlayer.targetX = x
+                        otherPlayer.targetY = y
+                        otherPlayer.targetRotation = angle
+                        otherPlayer.hp = hp
+                    }
+
+                }
+            }
+
+            (this.otherPlayers.getChildren() as SpaceShip[]).forEach(p => {
+                if (!!activeEntityIds.size && !activeEntityIds.has(p.playerId)) {
+                    p.destroy()
+                }
+            })
+
+            for (let i = 0; i < bulletCount; i++) {
+                const x = view.getInt16(offset, true)
+                const y = view.getInt16(offset + 2, true)
+                const angle = view.getInt16(offset + 4, true)
+                offset += 6
+
+                this.createBullet({ id: '', playerId: '', vx: 0, vy: 0, angle, x, y })
+            }
+
+            for (let i = 0; i < healCount; i++) {
+                const x = view.getInt16(offset, true)
+                const y = view.getInt16(offset + 2, true)
+                const isActive = view.getUint8(offset + 4) === 1
+                offset += 5
+
+                if (isActive) {
+                    const heal = this.heals.create(x, y, 'heal_icon') as Phaser.GameObjects.Sprite
+                    heal.setScale(this.isMobile ? 1.2 : 0.8).setTint(0x00ff00).setDepth(4)
+
+                    if (this.uiCamera) this.uiCamera.ignore(heal)
+                    if (this.backgroundCamera) this.backgroundCamera.ignore(heal)
+                }
+            }
+        })
+
         this.socket.on(GAME_EVENTS.CURRENT_PLAYERS, (players: { [id: string]: iPlayer }) => {
             if (this.otherPlayers) this.otherPlayers.clear(true, true)
 
@@ -736,81 +842,6 @@ export class MainScene extends Phaser.Scene {
 
         this.socket.on(GAME_EVENTS.PLAYER_JOINED, (playerInfo: iPlayer) => {
             this.addOtherPlayer(playerInfo)
-        })
-
-        this.socket.on(GAME_EVENTS.SERVER_UPDATE, (data: iServerUpdateData) => {
-            if (data.wave) this.isSurvival = true
-
-            const serverIds = new Set(Object.keys(data.players))
-
-            this.otherPlayers.getChildren().forEach(obj => {
-                const otherPlayer = obj as SpaceShip
-
-                if (!serverIds.has(otherPlayer.playerId)) {
-                    otherPlayer.destroy()
-                }
-            })
-
-            serverIds.forEach(id => {
-                const serverPlayerData = data.players[id]
-
-                if (id === this.socket.id && this.playerContainer) {
-                    const dist = Phaser.Math.Distance.Between(
-                        this.playerContainer.x,
-                        this.playerContainer.y,
-                        serverPlayerData.x,
-                        serverPlayerData.y
-                    )
-                    if (dist < 100) {
-                        this.playerContainer.x = Phaser.Math.Linear(this.playerContainer.x, serverPlayerData.x, 0.1)
-                        this.playerContainer.y = Phaser.Math.Linear(this.playerContainer.y, serverPlayerData.y, 0.1)
-                    }
-                    else {
-                        this.playerContainer.x = serverPlayerData.x
-                        this.playerContainer.y = serverPlayerData.y
-                    }
-
-                    this.playerContainer.hp = serverPlayerData.hp
-                    this.playerContainer.redrawHealthBar()
-                } 
-                else if (id !== this.socket.id) {
-                    let otherPlayer: SpaceShip | undefined
-                    this.otherPlayers.getChildren().forEach(obj => {
-                        const p = obj as SpaceShip
-                        if (p.playerId === id) otherPlayer = p
-                    })
-
-                    if (!otherPlayer) {
-                        this.addOtherPlayer(serverPlayerData)
-                        return
-                    }
-
-                    otherPlayer.targetX = serverPlayerData.x
-                    otherPlayer.targetY = serverPlayerData.y
-                    otherPlayer.targetRotation = serverPlayerData.angle
-                    otherPlayer.hp = serverPlayerData.hp
-                }
-            })
-
-            data.heals.forEach(healData => {
-                const healSprites = this.heals.getChildren() as Phaser.GameObjects.Sprite[]
-                let healSprite = healSprites.find(h => h.getData('healId') === healData.id)
-
-                if (!healSprite) {
-                    healSprite = this.heals.create(healData.x, healData.y, 'heal_icon') as Phaser.GameObjects.Sprite
-                    healSprite.setData('healId', healData.id)
-                    healSprite.setScale(this.isMobile ? 1.2 : 0.8)
-                    healSprite.setTint(0x00ff00)
-                    healSprite.setDepth(10)
-                }
-
-                healSprite.setPosition(healData.x, healData.y)
-                healSprite.setActive(healData.active)
-                healSprite.setVisible(healData.active)
-
-                if (this.uiCamera) this.uiCamera.ignore(healSprite)
-                if (this.backgroundCamera) this.backgroundCamera.ignore(healSprite)
-            })
         })
 
         this.socket.on(GAME_EVENTS.INITIAL_OBSTACLES, (obstacles: ObstaclesType) => {
@@ -843,21 +874,6 @@ export class MainScene extends Phaser.Scene {
             if (playerToRemove) {
                 playerToRemove.destroy()
             }
-        })
-
-        this.socket.on(GAME_EVENTS.NEW_BULLET, (bulletData: iBullet) => {
-            if (bulletData.playerId === this.socket.id) {
-                const bullets = this.bullets.getChildren() as iBulletSprite[]
-                const localBullet = bullets.find(b => b.bulletId.startsWith('local_'))
-
-                if (localBullet) {
-                    localBullet.bulletId = bulletData.id
-                }
-
-                return
-            }
-
-            this.createBullet(bulletData)
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_DIED, (data: { playerId: string, newX: number, newY: number, bulletId: string }) => {
@@ -896,7 +912,7 @@ export class MainScene extends Phaser.Scene {
 
             if (data.playerId === this.socket.id) {
                 targetShip = this.playerContainer
-                this.handleLocalDeath()
+                this.handleLocalDeath(data.respawnIn)
             }
             else {
                 this.otherPlayers.getChildren().forEach(obj => {
@@ -918,9 +934,9 @@ export class MainScene extends Phaser.Scene {
             if (data.playerId === this.socket.id) {
                 targetShip = this.playerContainer
                 this.isDead = false
-                this.respawnTimerText?.setVisible(false)
                 this.cleanSpectatorUI()
-            } else {
+            }
+            else {
                 this.otherPlayers.getChildren().forEach(obj => {
                     const ship = obj as SpaceShip
                     if (ship.playerId === data.playerId) targetShip = ship
@@ -945,7 +961,6 @@ export class MainScene extends Phaser.Scene {
             this.isDead = false
             this.isSurvival = false
 
-            this.hideDeathScreen()
             this.cleanSpectatorUI()
 
             const errorPage = document.getElementById('error-screen')!
@@ -1005,9 +1020,10 @@ export class MainScene extends Phaser.Scene {
         this.handleBulletHit(data.bulletId)
     }
 
-    private handleLocalDeath() {
+    private handleLocalDeath(respawnTime: number) {
         this.isDead = true
         this.spectatorIndex = 0
+        this.respawnTime = respawnTime
 
         if (this.playerContainer) {
             this.playerContainer.setAlpha(0.5)
@@ -1034,14 +1050,15 @@ export class MainScene extends Phaser.Scene {
             .setDepth(20002)
 
         this.uiGroup.add(this.spectatorNameText)
+        
+        this.spectatorRespawnTimeText = this.add.text(this.scale.width / 2, 150, '', { fontSize: '24px', color: '#ff0000' })
+            .setOrigin(0.5)
+            .setScrollFactor(0)
+            .setDepth(20002)
+
+        this.uiGroup.add(this.spectatorRespawnTimeText)
 
         this.updateSpectatorUI()
-    }
-
-    private hideDeathScreen() {
-        this.deathOverlay?.setVisible(false)
-        this.deathText?.setVisible(false)
-        this.respawnTimerText?.setVisible(false)
     }
 
     private changeSpectatorTarget(dir: number) {
@@ -1061,6 +1078,22 @@ export class MainScene extends Phaser.Scene {
         }
         else {
             this.spectatorNameText?.setText(`WAITING FOR RESPAWN...`)
+        }
+
+        const respawnTimeInterval = setInterval(() => {
+            this.respawnTime -= 1000
+            this.spectatorRespawnTimeText?.setText(`Respawn in: ${this.respawnTime / 1000}s`)
+
+            if (this.respawnTime <= 0) {
+                clearInterval(respawnTimeInterval)
+            }
+        }, 1000)
+
+        if (this.minimap) {
+            this.spectatorNameText && this.minimap.ignore(this.spectatorNameText)
+            this.specRightBtn && this.minimap.ignore(this.specRightBtn)
+            this.specLeftBtn && this.minimap.ignore(this.specLeftBtn)
+            this.spectatorRespawnTimeText && this.minimap.ignore(this.spectatorRespawnTimeText)
         }
     }
 
@@ -1160,9 +1193,11 @@ export class MainScene extends Phaser.Scene {
         this.specLeftBtn?.destroy()
         this.specRightBtn?.destroy()
         this.spectatorNameText?.destroy()
+        this.spectatorRespawnTimeText?.destroy()
         this.specLeftBtn = undefined
         this.specRightBtn = undefined
         this.spectatorNameText = undefined
+        this.spectatorRespawnTimeText = undefined
     }
 
     private setLeaderboardText(data: iLeaderboardUpdate[]) {
