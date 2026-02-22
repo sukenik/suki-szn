@@ -43,19 +43,19 @@ export class SurvivalLobby {
 
         this.readyBtn.onclick = () => {
             this.socket.emit(GAME_EVENTS.TOGGLE_READY, roomId)
-            const isReady = this.readyBtn.innerText === 'READY!'
+            const isReady = this.readyBtn.innerText === 'NOT READY'
 
             if (isReady) {
+                this.readyBtn.classList.remove('not-ready')
+                this.readyBtn.classList.add('ready')
+                this.readyBtn.innerText = 'READY'
+                this.readyHelpText.innerText = `If you're ready`
+            }
+            else {
                 this.readyBtn.classList.remove('ready')
                 this.readyBtn.classList.add('not-ready')
                 this.readyBtn.innerText = 'NOT READY'
                 this.readyHelpText.innerText = 'Not ready?'
-            }
-            else {
-                this.readyBtn.classList.remove('not-ready')
-                this.readyBtn.classList.add('ready')
-                this.readyBtn.innerText = 'READY!'
-                this.readyHelpText.innerText = `If you're ready`
             }
 
             this.readyHelpText.innerText += ' press the button ⬇️'
