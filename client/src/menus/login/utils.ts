@@ -1,12 +1,10 @@
 import { io, Socket } from 'socket.io-client'
 import { GAME_ERRORS, GAME_EVENTS, GAME_MODE, type GameModeType } from '../../../../shared/consts'
-import { phaserConfig, appConfig } from '../../config'
+import { appConfig, phaserConfig } from '../../config'
 import { SurvivalLobby } from '../lobby/SurvivalLobby'
 
-const { serverUrl, clientUrl } = appConfig
-export const USER_TOKEN = 'suki_token'
-
 let gameInstance: Phaser.Game | undefined
+let socket: Socket | undefined
 
 const launchPhaser = (socket: Socket, loginScreen: HTMLElement | null) => {
 	if (!gameInstance) {
@@ -16,8 +14,24 @@ const launchPhaser = (socket: Socket, loginScreen: HTMLElement | null) => {
 	}
 }
 
-export const startGame = async (
-	user: any,
+export const getSocket = (token: string, mode: GameModeType, existingRoom: string | null) => {
+	if (socket) {
+		socket.auth = { token, mode, roomId: existingRoom }
+		return socket
+	}
+
+	return io(appConfig.serverUrl, {
+		auth: {
+			token,
+			mode,
+			roomId: existingRoom
+		},
+		transports: ['websocket'],
+	})
+}
+
+export const startGame = (
+	token: string,
 	mode: GameModeType,
 	loginScreen: HTMLElement | null,
 	existingRoom: string | null,
@@ -25,20 +39,11 @@ export const startGame = async (
 ) => {
 	if (gameInstance) return
 
-	const token = await user.getIdToken()
-
-	const socket = io(serverUrl, {
-		auth: {
-			token,
-			mode,
-			roomId: existingRoom
-		},
-		transports: ['websocket'],
-		reconnectionAttempts: 10,
-		timeout: 20000
-	})
+	socket = getSocket(token, mode, existingRoom)
 
 	socket.on('connect', () => {
+		if (!socket) return
+
 		socket.on('error', (message) => {
 			clearLoadingPage()
 
@@ -78,13 +83,13 @@ export const startGame = async (
 			socket.on(GAME_EVENTS.ROOM_JOINED, (data: { roomId: string, isInProgress: boolean }) => {
 				clearLoadingPage()
 				data.isInProgress
-					? launchPhaser(socket, loginScreen)
+					? launchPhaser(socket!, loginScreen)
 					: lobby.show(data.roomId)
 			})
 
 			socket.on(GAME_EVENTS.GAME_START, () => {
 				lobby.hide()
-				launchPhaser(socket, loginScreen)
+				launchPhaser(socket!, loginScreen)
 			})
 		}
 	})
@@ -101,7 +106,7 @@ export const setBackToMenuBtns = (
 
 		button.addEventListener('click', () => {
 			showLoadingPage()
-			window.location.href = clientUrl
+			window.location.href = appConfig.clientUrl
 			clearLoadingPage()
 		})
 	}

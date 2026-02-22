@@ -33,5 +33,6 @@ export const phaserConfig: Phaser.Types.Core.GameConfig = {
 
 export const appConfig = {
     serverUrl: import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3000',
-    clientUrl: import.meta.env.VITE_CLIENT_URL ?? 'http://localhost:5173'
+    clientUrl: import.meta.env.VITE_CLIENT_URL ?? 'http://localhost:5173',
+    USER_TOKEN: 'suki_token'
 }

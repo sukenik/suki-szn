@@ -21,6 +21,7 @@ export interface iPlayer {
     vx: number
     vy: number
     lastInput?: iPlayerInputs
+    isAuthenticating?: boolean
 }
 
 export interface iBullet {

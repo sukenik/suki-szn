@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { GAME_ERRORS, GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
 import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, ObstaclesType } from '../../shared/types'
 import { recordMiss, saveBufferToFile } from './ai/recordData'
+import { handleReconnection } from './authUtils'
 import { supabase } from './db'
 import { AStarPathfinder } from './logic/AStarPathfinder'
 import { Bot } from './logic/Bot'
@@ -62,6 +63,21 @@ io.use((socket, next) => {
     next()
 })
 
+io.use(async (socket, next) => {
+    try {
+        const token = socket.handshake.auth.token
+        const decodedToken = await admin.auth().verifyIdToken(token)
+
+        socket.data.userId = decodedToken.uid
+        socket.data.username = decodedToken.name || 'New Pilot'
+
+        next()
+    } catch (err) {
+        console.error('Auth middleware failed')
+        next(new Error('Authentication error'))
+    }
+})
+
 const connectionsByIP = new Map<string, number>()
 const players: { [id: string]: iPlayer } = {}
 const bots: Bot[] = []
@@ -69,7 +85,7 @@ const bullets: iBullet[] = []
 let healPacks: iHealPack[] = getNewHealPacks()
 let lastUpdate = Date.now()
 
-const multiplayerIdMap = new Map<string, number>()
+export const multiplayerIdMap = new Map<string, number>()
 let nextMultiplayerId = 1
 
 const getNumericId = (id: string) => {
@@ -222,10 +238,125 @@ setInterval(async () => {
 }, 1000 / TICK_RATE)
 
 io.on('connection', async (socket) => {
+    const userId = socket.data.userId
+    const username = socket.data.username
+
+    setupPreGameEvents(socket)
     setupGameEvents(socket)
 
+    const existingPlayer = Object.values(players).find(p => p.firebaseId === userId)
+
+    if (existingPlayer) {
+        handleReconnection(socket, existingPlayer, players)
+        socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
+        socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
+        return
+    }
+
+    players[socket.id] = {
+        id: socket.id,
+        firebaseId: userId,
+        ...generateNewLocation(),
+        angle: 0,
+        hp: MAX_HEALTH,
+        name: username,
+        kills: 0,
+        vx: 0,
+        vy: 0,
+        isAuthenticating: true
+    }
+
+    try {
+        let { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('firebase_id', userId)
+            .single()
+
+        if (error && error.code !== 'PGRST116') {
+            console.error('Supabase error:', error)
+            throw error
+        }
+
+        if (!user) {
+            const { data: newUser, error: createError } = await supabase
+                .from('users')
+                .insert([{
+                    firebase_id: userId,
+                    username: username || 'New Pilot'
+                }])
+                .select()
+                .single()
+
+            if (createError) {
+                console.error('Supabase Insert Error:', createError.message)
+                console.error('Error Details:', createError.details)
+                console.error('Error Hint:', createError.hint)
+                return
+            }
+
+            user = newUser
+
+            console.log('New user created in DB:', user.username)
+        }
+    }
+    catch (error) {
+        console.error('Authentication failed:', error)
+        delete players[socket.id]
+        socket.disconnect()
+    }
+
+    players[socket.id] = {
+        id: socket.id,
+        firebaseId: userId,
+        ...generateNewLocation(),
+        angle: 0,
+        hp: MAX_HEALTH,
+        name: username,
+        kills: 0,
+        vx: 0,
+        vy: 0
+    }
+
+    if (socket.handshake.auth.mode === GAME_MODE.MULTIPLAYER) {
+        socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
+    }
+
+    console.log(`User ${username} authenticated and joined the game.`)
+
+    socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
+    socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
+
+    setupGameEvents(socket)
+})
+
+const waitForPlayerReady = async (socketId: string): Promise<boolean> => {
+    let attempts = 0
+
+    while (attempts < 50) {
+        const player = players[socketId]
+
+        if (player && !player.isAuthenticating) {
+            return true
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100))
+        attempts++
+    }
+
+    return false
+}
+
+const setupPreGameEvents = (socket: Socket) => {
     socket.on(GAME_EVENTS.REQUEST_INITIAL_STATE, async () => {
-        console.log(`[Socket ${socket.id}] requested state. Sending ${Object.keys(players).length} players.`)
+        const isReady = await waitForPlayerReady(socket.id)
+
+        if (!isReady) {
+            console.error(`[Socket ${socket.id}] Auth timeout or player not found.`)
+            return
+        }
+
+        console.log(`[Socket ${socket.id}] Sending state now!`)
 
         socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
         socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
@@ -251,144 +382,6 @@ io.on('connection', async (socket) => {
         }
     })
 
-    try {
-        const token = socket.handshake.auth.token
-        const decodedToken = await admin.auth().verifyIdToken(token)
-        const userId = decodedToken.uid
-
-        const existingPlayer = Object.values(players).find(p => p.firebaseId === userId)
-
-        if (existingPlayer) {
-            console.log(`Found existing player for UID ${decodedToken.uid}, reconnecting...`)
-            const oldSocket = io.sockets.sockets.get(existingPlayer.id)
-
-            if (oldSocket) {
-                oldSocket.disconnect(true)
-            }
-
-            const oldId = existingPlayer.id
-            const newId = socket.id
-
-            if (existingPlayer.hp <= 0) {
-                players[newId] = {
-                    ...existingPlayer,
-                    ...generateNewLocation(),
-                    id: newId,
-                    hp: MAX_HEALTH,
-                    kills: 0,
-                    vx: 0,
-                    vy: 0,
-                }
-            }
-            else {
-                players[newId] = { ...existingPlayer, id: newId, vx: 0, vy: 0 }
-            }
-
-            delete players[oldId]
-
-            for (const [roomId, room] of survivalRooms) {
-                if (room.players.includes(oldId)) {
-                    room.players = room.players.map(pid => pid === oldId ? newId : pid)
-
-                    const wasReady = room.readyStatus.get(oldId) || false
-                    room.readyStatus.delete(oldId)
-                    room.readyStatus.set(newId, wasReady)
-
-                    if (room.hostId === oldId) {
-                        room.hostId = newId
-                    }
-
-                    socket.join(roomId)
-                    
-                    const playersInRoom = room.players.map(pid => ({
-                        id: pid,
-                        name: players[pid]?.name || 'Unknown',
-                        ready: room.readyStatus.get(pid) || false
-                    }))
-                    io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: playersInRoom })
-                    break
-                }
-            }
-
-            survivalManagers.forEach((manager, roomId) => {
-                const roomPlayers = survivalRooms.get(roomId)?.players || []
-
-                if (roomPlayers.includes(newId)) {
-                    manager.updatePlayerId(oldId, newId)
-                }
-            })
-
-            if (multiplayerIdMap.has(oldId)) {
-                const numId = multiplayerIdMap.get(oldId)!
-                multiplayerIdMap.delete(oldId)
-                multiplayerIdMap.set(newId, numId)
-
-                io.emit(GAME_EVENTS.ID_MAPPING, { id: newId, numId })
-            }
-
-            io.emit(GAME_EVENTS.PLAYER_LEFT, oldId)
-            socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[newId])
-
-            console.log(`User ${players[newId].name} reconnected successfully.`)
-            return
-        }
-
-        let { data: user, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('firebase_id', userId)
-            .single()
-
-        if (error && error.code !== 'PGRST116') {
-            console.error('Supabase error:', error)
-            throw error
-        }
-
-        if (!user) {
-            const { data: newUser, error: createError } = await supabase
-                .from('users')
-                .insert([{
-                    firebase_id: userId,
-                    username: decodedToken.name || 'New Pilot'
-                }])
-                .select()
-                .single()
-
-            if (createError) {
-                console.error('Supabase Insert Error:', createError.message)
-                console.error('Error Details:', createError.details)
-                console.error('Error Hint:', createError.hint)
-                return
-            }
-
-            user = newUser
-
-            console.log('New user created in DB:', user.username)
-        }
-
-        players[socket.id] = {
-            id: socket.id,
-            firebaseId: userId,
-            ...generateNewLocation(),
-            angle: 0,
-            hp: MAX_HEALTH,
-            name: user.username,
-            kills: 0,
-            vx: 0,
-            vy: 0
-        }
-
-        if (socket.handshake.auth.mode === GAME_MODE.MULTIPLAYER) {
-            socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
-        }
-        console.log(`User ${user.username} authenticated and joined the game.`)
-    } catch (error) {
-        console.error('Authentication failed:', error)
-        socket.disconnect()
-    }
-})
-
-const setupGameEvents = async (socket: Socket) => {
     socket.on(GAME_EVENTS.CREATE_SURVIVAL, async () => {
         let attempts = 0
 
@@ -466,7 +459,9 @@ const setupGameEvents = async (socket: Socket) => {
 
         io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: playersInRoom })
     })
+}
 
+const setupGameEvents = async (socket: Socket) => {
     socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
     socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
 
