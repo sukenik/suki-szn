@@ -4,14 +4,15 @@ import { GAME_MODE } from '../../../../shared/consts'
 import { appConfig } from '../../config'
 import { auth, loginEmail, loginWithGoogle, registerEmail } from '../../firebase'
 import { getError } from './logic'
-import { setBackToMenuBtns, startGame, USER_TOKEN } from './utils'
+import { setBackToMenuBtns, startGame } from './utils'
 
-const { serverUrl } = appConfig
+const { serverUrl, USER_TOKEN } = appConfig
 
 async function startApp() {
     let isRegistering = false
     let isAuthenticated = false
     let isServerUp = false
+    let isStarting = false
 
     const loginScreen = document.getElementById('ui-layer')
     const loginBtn = document.getElementById('login-button') as HTMLButtonElement
@@ -49,6 +50,7 @@ async function startApp() {
             `
             document.body.appendChild(loadingScreen)
         }
+
         loadingScreen.style.display = 'flex'
     }
 
@@ -68,12 +70,10 @@ async function startApp() {
         }
     }
 
-    const hasValidToken = storedToken && isTokenValid(storedToken)
+    const hasValidToken = !!storedToken && isTokenValid(storedToken)
 
     if (loginScreen && !hasValidToken) loginScreen.style.display = 'flex'
-    if (hasValidToken) {
-        isAuthenticated = true
-    }
+    if (hasValidToken) isAuthenticated = true
 
     const showStatus = (msg: string) => {
         if (statusDiv && statusText) {
@@ -96,16 +96,23 @@ async function startApp() {
 
     const fetchInterval = setInterval(() => {
         fetch(`${serverUrl}/health`, { mode: 'no-cors' })
-            .then(() => {
+            .then(async () => {
                 isServerUp = true
 
                 if (isAuthenticated) {
-                    const user = auth.currentUser || (hasValidToken ? { getIdToken: async () => storedToken } : null)
+                    const user = auth.currentUser
+
                     if (user) {
-                        handleUserConnected(user)
+                        const token = await user.getIdToken()
+                        localStorage.setItem(USER_TOKEN, token)
+
+                        handleUserConnected(token)
                     }
+                    else if (hasValidToken) {
+                        handleUserConnected(storedToken)
+                    }
+
                     showStatus(`🔥 Server is up - let's go!`)
-                    showLoading()
                 }
                 else {
                     if (statusDiv) statusDiv.style.display = 'none'
@@ -142,7 +149,8 @@ async function startApp() {
             isRegistering = true
             const updatedUser = await registerEmail(email, pass, user)
 
-            await handleUserConnected(updatedUser)
+            const token = await updatedUser.getIdToken()
+            handleUserConnected(token)
 
             isRegistering = false
         } catch (e: any) {
@@ -167,13 +175,8 @@ async function startApp() {
         }
     })
 
-    const handleUserConnected = async (user: any) => {
+    const handleUserConnected = (token: string) => {
         isAuthenticated = true
-
-        if (user) {
-            const token = await user.getIdToken()
-            localStorage.setItem(USER_TOKEN, token)
-        }
 
         if (spinner) spinner.style.borderTopColor = '#00ff55'
         if (statusText) statusText.style.color = '#00ff55'
@@ -181,8 +184,9 @@ async function startApp() {
 
         !isServerUp && showStatus(`✅ You're authenticated - waiting for server...`)
 
-        if (isServerUp) {
+        if (isServerUp && !isStarting) {
             loginScreen?.remove()
+            hideLoading()
 
             const urlParams = new URLSearchParams(window.location.search)
             const existingRoom = urlParams.get('room')
@@ -190,32 +194,38 @@ async function startApp() {
             if (existingRoom) {
                 showStatus('Joining survival room...')
                 showLoading()
-                startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
+
+                isStarting = true
+                startGame(token, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
             }
             else {
                 if (modeSelector) {
-                    hideLoading()
                     modeSelector.style.display = 'flex'
 
                     multiplayerBtn?.addEventListener('click', () => {
                         modeSelector.style.display = 'none'
                         showLoading()
-                        startGame(user, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom, hideLoading)
+
+                        isStarting = true
+                        startGame(token, GAME_MODE.MULTIPLAYER, loginScreen, existingRoom, hideLoading)
                     })
 
                     survivalBtn?.addEventListener('click', () => {
                         modeSelector.style.display = 'none'
                         showLoading()
-                        startGame(user, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
+
+                        isStarting = true
+                        startGame(token, GAME_MODE.SURVIVAL, loginScreen, existingRoom, hideLoading)
                     })
                 }
             }
         }
     }
 
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
         if (user && !isRegistering) {
-            handleUserConnected(user)
+            const token = await user.getIdToken()
+            handleUserConnected(token)
         }
         else {
             if (!loginScreen) return

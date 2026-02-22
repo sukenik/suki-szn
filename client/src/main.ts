@@ -134,13 +134,7 @@ export class MainScene extends Phaser.Scene {
             }
         }
 
-        attemptRequest()
-
-        this.time.delayedCall(2000, () => {
-            if (!this.playerContainer) {
-                attemptRequest()
-            }
-        })
+        this.time.delayedCall(2000, attemptRequest)
     }
 
     addMainPlayer(playerInfo: iPlayer) {
@@ -1157,6 +1151,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     private updateOtherPlayersRendering() {
+        if (!this.otherPlayers) return
+
         this.otherPlayers.getChildren().forEach(obj => {
             const otherPlayer = obj as SpaceShip
 
