@@ -954,7 +954,6 @@ export class MainScene extends Phaser.Scene {
 
         this.socket.on(GAME_EVENTS.GAME_OVER, (data: { username: string, survival_high_score: number }[]) => {
             this.isDead = false
-            // this.isSurvival = false
 
             this.cleanSpectatorUI()
 
