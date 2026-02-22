@@ -22,9 +22,11 @@ export const handleReconnection = (
 		vy: 0,
 		isAuthenticating: false
 	}
+
     delete players[oldId]
 
     const oldSocket = io.sockets.sockets.get(oldId)
+
     if (oldSocket) oldSocket.disconnect(true)
 
 	if (existingPlayer.hp <= 0) {
@@ -61,7 +63,9 @@ export const handleReconnection = (
 				name: players[pid]?.name || 'Unknown',
 				ready: room.readyStatus.get(pid) || false
 			}))
+
 			io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: playersInRoom })
+
 			break
 		}
 	}

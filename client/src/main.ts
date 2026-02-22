@@ -4,6 +4,7 @@ import { GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
 import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdate, iPlayer, iPlayerInputs, iRectObstacle, iSurvivalLeaderboardUpdate, ObstaclesType } from '../../shared/types'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
+import { SurvivalLobby } from './menus/lobby/SurvivalLobby'
 
 const {
     WORLD_WIDTH, WORLD_HEIGHT, PLAYER_SIZE, MAX_HEALTH, PLAYER_SPEED,
@@ -128,13 +129,7 @@ export class MainScene extends Phaser.Scene {
             }, 500)
         })
 
-        const attemptRequest = () => {
-            if (this.socket.connected) {
-                this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
-            }
-        }
-
-        this.time.delayedCall(2000, attemptRequest)
+        this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
     }
 
     addMainPlayer(playerInfo: iPlayer) {
@@ -711,6 +706,12 @@ export class MainScene extends Phaser.Scene {
             this.numericIdMap.set(data.numId, data.id)
         })
 
+        this.socket.on(GAME_EVENTS.GAME_START, () => {
+            this.isDead = false
+            this.cleanSpectatorUI()
+            this.socket.emit(GAME_EVENTS.REQUEST_INITIAL_STATE)
+        })
+
         this.socket.on(GAME_EVENTS.SERVER_UPDATE, (buffer: ArrayBuffer) => {
             const view = new DataView(buffer)
             let offset = 0
@@ -953,7 +954,6 @@ export class MainScene extends Phaser.Scene {
 
         this.socket.on(GAME_EVENTS.GAME_OVER, (data: { username: string, survival_high_score: number }[]) => {
             this.isDead = false
-            this.isSurvival = false
 
             this.cleanSpectatorUI()
 
@@ -962,6 +962,20 @@ export class MainScene extends Phaser.Scene {
             const messageDescription = document.getElementById('error-description')!
             const listFirstRow = document.getElementById('survival-list-first-row')!
             const list = document.getElementById('survival-list')!
+            const btns = errorPage.getElementsByClassName('back-to-menu-btn')!
+            const backToLobbyBtn = document.getElementById('back-to-lobby-btn')!;
+
+            (btns[0] as HTMLElement).style.display = 'none'
+            backToLobbyBtn.style.display = 'inline'
+
+            backToLobbyBtn.addEventListener('click', () => {
+                const urlParams = new URLSearchParams(window.location.search)
+                const existingRoom = urlParams.get('room')!
+
+                const lobby = new SurvivalLobby(this.socket)
+                lobby.show(existingRoom)
+                errorPage.style.display = 'none'
+            })
 
             listFirstRow.style.display = 'flex'
             errorPage.style.display = 'flex'

@@ -5,7 +5,7 @@ import { createServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import { v4 as uuidv4 } from 'uuid'
 import { GAME_ERRORS, GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
-import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, ObstaclesType } from '../../shared/types'
+import { iBullet, iCircleObstacle, iCompoundRectObstacle, iHealPack, iPlayer, iPlayerInputs, iRectObstacle, ObstaclesType, SurvivalRoomUpdateType } from '../../shared/types'
 import { recordMiss, saveBufferToFile } from './ai/recordData'
 import { handleReconnection } from './authUtils'
 import { supabase } from './db'
@@ -142,9 +142,6 @@ if (isTrainingMode) {
     }
 }
 
-// TODO: Remove after testing
-let counter = 0
-
 setInterval(async () => {
     const now = Date.now()
     const dt = (now - lastUpdate) / 1000
@@ -189,6 +186,7 @@ setInterval(async () => {
             finishedManagers.push(roomId)
             return
         }
+
         const roomPlayers = getPlayersInRoom(roomId, players)
 
         manager.update(roomPlayers, dt)
@@ -227,13 +225,6 @@ setInterval(async () => {
         }
     })
 
-    const processTime = Date.now() - now
-
-    // TODO: Remove after testing
-    if (processTime > (1000 / TICK_RATE)) {
-        console.warn(`Counter: ${++counter}`)
-        console.warn(`⚠️ Server Lag Detected! Tick took ${processTime}ms (Max allowed: ${(1000 / TICK_RATE)}ms)`)
-    }
 
 }, 1000 / TICK_RATE)
 
@@ -242,90 +233,117 @@ io.on('connection', async (socket) => {
     const username = socket.data.username
 
     setupPreGameEvents(socket)
-    setupGameEvents(socket)
 
     const existingPlayer = Object.values(players).find(p => p.firebaseId === userId)
+    const oldSocketId = existingPlayer?.id
 
     if (existingPlayer) {
         handleReconnection(socket, existingPlayer, players)
-        socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
-        socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
-        return
     }
-
-    players[socket.id] = {
-        id: socket.id,
-        firebaseId: userId,
-        ...generateNewLocation(),
-        angle: 0,
-        hp: MAX_HEALTH,
-        name: username,
-        kills: 0,
-        vx: 0,
-        vy: 0,
-        isAuthenticating: true
-    }
-
-    try {
-        let { data: user, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('firebase_id', userId)
-            .single()
-
-        if (error && error.code !== 'PGRST116') {
-            console.error('Supabase error:', error)
-            throw error
+    else {
+        players[socket.id] = {
+            id: socket.id,
+            firebaseId: userId,
+            ...generateNewLocation(),
+            angle: 0,
+            hp: MAX_HEALTH,
+            name: username,
+            kills: 0,
+            vx: 0,
+            vy: 0,
+            isAuthenticating: true
         }
 
-        if (!user) {
-            const { data: newUser, error: createError } = await supabase
+        try {
+            let { data: user, error } = await supabase
                 .from('users')
-                .insert([{
-                    firebase_id: userId,
-                    username: username || 'New Pilot'
-                }])
-                .select()
+                .select('*')
+                .eq('firebase_id', userId)
                 .single()
 
-            if (createError) {
-                console.error('Supabase Insert Error:', createError.message)
-                console.error('Error Details:', createError.details)
-                console.error('Error Hint:', createError.hint)
-                return
+            if (error && error.code !== 'PGRST116') {
+                console.error('Supabase error:', error)
+                throw error
             }
 
-            user = newUser
+            if (!user) {
+                const { data: newUser, error: createError } = await supabase
+                    .from('users')
+                    .insert([{
+                        firebase_id: userId,
+                        username: username || 'New Pilot'
+                    }])
+                    .select()
+                    .single()
 
-            console.log('New user created in DB:', user.username)
+                if (createError) {
+                    console.error('Supabase Insert Error:', createError.message)
+                    console.error('Error Details:', createError.details)
+                    console.error('Error Hint:', createError.hint)
+                    return
+                }
+
+                user = newUser
+
+                console.log('New user created in DB:', user.username)
+            }
         }
-    }
-    catch (error) {
-        console.error('Authentication failed:', error)
-        delete players[socket.id]
-        socket.disconnect()
-    }
+        catch (error) {
+            console.error('Authentication failed:', error)
+            delete players[socket.id]
+            socket.disconnect()
+        }
 
-    players[socket.id] = {
-        id: socket.id,
-        firebaseId: userId,
-        ...generateNewLocation(),
-        angle: 0,
-        hp: MAX_HEALTH,
-        name: username,
-        kills: 0,
-        vx: 0,
-        vy: 0
+        players[socket.id] = {
+            id: socket.id,
+            firebaseId: userId,
+            ...generateNewLocation(),
+            angle: 0,
+            hp: MAX_HEALTH,
+            name: username,
+            kills: 0,
+            vx: 0,
+            vy: 0
+        }
+
+        if (socket.handshake.auth.mode === GAME_MODE.MULTIPLAYER) {
+            socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
+        }
+
+        console.log(`User ${username} authenticated and joined the game.`)
     }
 
     if (socket.handshake.auth.mode === GAME_MODE.MULTIPLAYER) {
-        socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
-    }
+        survivalRooms.forEach((room, roomId) => {
+            let playerToRemove = room.players.find(pid => pid === socket.id)
 
-    console.log(`User ${username} authenticated and joined the game.`)
+            if (!playerToRemove && oldSocketId) {
+                playerToRemove = room.players.find(pid => pid === oldSocketId)
+            }
+
+            if (playerToRemove) {
+                room.players = room.players.filter(pid => pid !== playerToRemove)
+                room.readyStatus.delete(playerToRemove)
+
+                if (room.players.length === 0) {
+                    survivalRooms.delete(roomId)
+                }
+                else {
+                    const updatedPlayers = room.players.map(pid => ({
+                        id: pid,
+                        name: players[pid]?.name || 'Unknown',
+                        ready: room.readyStatus.get(pid)
+                    }))
+
+                    io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: updatedPlayers })
+                }
+            }
+        })
+    }
 
     socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
     socket.emit(GAME_EVENTS.INITIAL_OBSTACLES, obstacles)
+    await broadcastLeaderboard()
 
     setupGameEvents(socket)
 })
@@ -401,8 +419,7 @@ const setupPreGameEvents = (socket: Socket) => {
             hostId: socket.id,
             players: [socket.id],
             readyStatus: new Map([[socket.id, false]]),
-            isStarted: false,
-            currentWave: 0
+            isStarted: false
         }
 
         survivalRooms.set(roomId, roomData)
@@ -415,7 +432,7 @@ const setupPreGameEvents = (socket: Socket) => {
             id: pid,
             name: players[pid]?.name || 'Unknown',
             ready: roomData.readyStatus.get(pid) || false
-        }))
+        })) as SurvivalRoomUpdateType
 
         io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: playersInRoom })
     })
@@ -464,7 +481,6 @@ const setupPreGameEvents = (socket: Socket) => {
 const setupGameEvents = async (socket: Socket) => {
     socket.emit(GAME_EVENTS.CURRENT_PLAYERS, players)
     socket.broadcast.emit(GAME_EVENTS.PLAYER_JOINED, players[socket.id])
-
     await broadcastLeaderboard()
 
     socket.on(GAME_EVENTS.INPUT_UPDATE, (inputData: iPlayerInputs) => {
@@ -538,6 +554,14 @@ const setupGameEvents = async (socket: Socket) => {
 
         if (allReady && room.players.length > 0 && room.players.length <= 4) {
             room.isStarted = true
+
+            room.players.forEach(pid => {
+                if (players[pid]) {
+                    players[pid].kills = 0
+                    players[pid].hp = MAX_HEALTH
+                }
+            })
+
             startCountdown(roomId, io, playersInRoom)
         }
         else {
@@ -573,6 +597,7 @@ const setupGameEvents = async (socket: Socket) => {
                 survivalManagers.forEach(manager => {
                     manager.removePlayer(socket.id)
                 })
+
                 multiplayerIdMap.delete(socket.id)
                 delete players[socket.id]
                 io.emit(GAME_EVENTS.PLAYER_LEFT, socket.id)

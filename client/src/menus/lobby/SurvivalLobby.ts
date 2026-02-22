@@ -1,13 +1,20 @@
 import type { Socket } from 'socket.io-client'
 import { GAME_EVENTS } from '../../../../shared/consts'
+import type { SurvivalRoomUpdateType } from '../../../../shared/types'
 
 export class SurvivalLobby {
     private socket: Socket
     private lobbyElement: HTMLElement
+    private timerDiv: HTMLElement
+    private readyBtn: HTMLButtonElement
+    private readyHelpText: HTMLButtonElement
 
     constructor(socket: Socket) {
         this.socket = socket
         this.lobbyElement = document.getElementById('survival-lobby')!
+        this.timerDiv = document.getElementById('lobby-timer')!
+        this.readyBtn = document.getElementById('ready-toggle-btn')! as HTMLButtonElement
+        this.readyHelpText = document.getElementById('ready-help-text')! as HTMLButtonElement
     }
 
     public show(roomId: string) {
@@ -33,46 +40,46 @@ export class SurvivalLobby {
     }
 
     private setupListeners(roomId: string) {
-        const readyBtn = document.getElementById('ready-toggle-btn') as HTMLButtonElement
-        const readyHelpText = document.getElementById('ready-help-text') as HTMLButtonElement
-        
-        readyBtn.onclick = () => {
+
+        this.readyBtn.onclick = () => {
             this.socket.emit(GAME_EVENTS.TOGGLE_READY, roomId)
+            const isReady = this.readyBtn.innerText === 'NOT READY'
 
-            readyBtn.classList.toggle('ready')
-            readyBtn.classList.toggle('not-ready')
-            readyBtn.innerText = readyBtn.classList.contains('ready') ? 'READY!' : 'NOT READY'
+            if (isReady) {
+                this.readyBtn.classList.remove('not-ready')
+                this.readyBtn.classList.add('ready')
+                this.readyBtn.innerText = 'READY'
+                this.readyHelpText.innerText = `If you're ready`
+            }
+            else {
+                this.readyBtn.classList.remove('ready')
+                this.readyBtn.classList.add('not-ready')
+                this.readyBtn.innerText = 'NOT READY'
+                this.readyHelpText.innerText = 'Not ready?'
+            }
 
-            readyHelpText.innerText = readyHelpText.innerText.includes('Not ready') 
-                ? `If you're ready`
-                : 'Not ready?'
-            readyHelpText.innerText += ' press the button ⬇️'
+            this.readyHelpText.innerText += ' press the button ⬇️'
         }
 
         this.socket.on(GAME_EVENTS.ROOM_UPDATE, (data) => {
-            this.renderPlayers(data.players)
+            this.renderPlayers(data.players as SurvivalRoomUpdateType)
         })
 
         this.socket.on(GAME_EVENTS.STARTING_COUNTDOWN, (seconds: number) => {
-            const timerDiv = document.getElementById('lobby-timer')
             const secondsSpan = document.getElementById('timer-seconds')
 
-            if (timerDiv && secondsSpan) {
-                timerDiv.className = 'timer-visible'
+            if (this.timerDiv && secondsSpan) {
+                this.timerDiv.className = 'timer-visible'
                 secondsSpan.innerText = seconds.toString()
             }
         })
 
         this.socket.on(GAME_EVENTS.STOP_COUNTDOWN, () => {
-            const timerDiv = document.getElementById('lobby-timer')
-
-            if (timerDiv) {
-                timerDiv.className = 'timer-hidden'
-            }
+            this.timerDiv.className = 'timer-hidden'
         })
     }
 
-    private renderPlayers(players: any[]) {
+    private renderPlayers(players: SurvivalRoomUpdateType) {
         const list = document.getElementById('player-list')!
 
         list.innerHTML = players.map(p => `
@@ -87,5 +94,10 @@ export class SurvivalLobby {
 
     public hide() {
         this.lobbyElement.style.display = 'none'
+        this.timerDiv.className = 'timer-hidden'
+        this.readyBtn.innerText = 'READY!'
+        this.readyHelpText.innerText = `If you're ready press the button ⬇️`
+        this.readyBtn.classList.remove('not-ready')
+        this.readyBtn.classList.add('ready')
     }
 }

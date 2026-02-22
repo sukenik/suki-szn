@@ -293,7 +293,8 @@ canvas {
 }
 
 .ready-btn,
-.back-to-menu-btn {
+.back-to-menu-btn,
+#back-to-lobby-btn {
     margin-top: 20px;
     padding: 15px 40px;
     font-weight: bold;

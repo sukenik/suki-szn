@@ -76,3 +76,11 @@ export interface iSurvivalLeaderboardUpdate {
     data: iLeaderboardUpdate[]
     wave: number
 }
+
+export interface iSurvivalLobbyPlayer {
+    id: string
+    name: string
+    ready: boolean
+}
+
+export type SurvivalRoomUpdateType = iSurvivalLobbyPlayer[]
