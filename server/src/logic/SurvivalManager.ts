@@ -1,6 +1,6 @@
 import { Server } from 'socket.io'
 import { GAME_EVENTS, GAME_SETTINGS } from '../../../shared/consts'
-import { iBullet, iHealPack, iLeaderboardUpdate, iSurvivalLeaderboardUpdate, iPlayer } from '../../../shared/types'
+import { iBullet, iHealPack, iLeaderboardUpdate, iSurvivalLeaderboardUpdate, iPlayer, SurvivalRoomUpdateType } from '../../../shared/types'
 import { BULLET_DAMAGE } from '../consts'
 import { supabase } from '../db'
 import { iSurvivalRoom, survivalRooms } from '../room'
@@ -291,18 +291,27 @@ export class SurvivalManager {
 		this.bots = []
 		this.bullets = []
 
-        this.room.players.forEach(playerId => {
-            const socket = this.io.sockets.sockets.get(playerId)
-            if (socket) {
-                socket.leave(this.room.id)
-            }
-        })
+        survivalRooms.set(this.room.id, {
+			...this.room,
+			isStarted: false,
+			readyStatus: new Map(this.room.players.map(id => [id, false]))
+		})
 
-        survivalRooms.delete(this.room.id)
+		const lobbyPlayers = this.room.players.map(pid => ({
+			id: pid,
+			name: this.roomPlayersSnapshot[pid].name || 'Unknown',
+			ready: false
+		})) as SurvivalRoomUpdateType
+
+		this.io.to(this.room.id).emit(GAME_EVENTS.ROOM_UPDATE, { players: lobbyPlayers })
+
         console.log(`[Room ${this.room.id}] Game over. Cleaned up room.`)
 
 		this.isActive = false
 		this.isGameOver = true
+
+		const playersInRoom = Object.values(this.roomPlayersSnapshot)
+		playersInRoom.forEach(player => player.hp = MAX_HEALTH)
     }
 
 	public getNumericId(id: string): number {

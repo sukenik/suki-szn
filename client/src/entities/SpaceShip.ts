@@ -61,7 +61,7 @@ export class SpaceShip extends Phaser.GameObjects.Container {
         this.add([this.emitter, this.ship, this.nameTag, this.healthBar, this.marker])
 		this.sendToBack(this.emitter)
 
-        this.setDepth(isMainPlayer ? 10 : 5)
+        this.setDepth(isMainPlayer ? 12 : 11)
         scene.cameras.main.ignore(this.marker)
 
         scene.add.existing(this)

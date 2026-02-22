@@ -6,7 +6,6 @@ export interface iSurvivalRoom {
     players: string[]
     readyStatus: Map<string, boolean>
     isStarted: boolean
-    currentWave: number
 }
 
 export const survivalRooms = new Map<string, iSurvivalRoom>()
