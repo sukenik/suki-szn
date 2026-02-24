@@ -52,7 +52,7 @@
   <div id="mode-selector" style="display: none;" class="auth-card">
     <div id="mode-selector-card">
       <h2>CHOOSE MISSION</h2>
-      <div class="mode-options">
+      <div id="mode-options">
         <div class="mode-wrapper">
           <img class="mode-photo" src="./assets/multiplayer.png" alt="multiplayer photo">
           <button id="multiplayer-btn" class="login-btn">
@@ -73,41 +73,47 @@
 
   <div id="survival-lobby" style="display: none;">
     <div class="lobby-card">
-      <h1>SURVIVAL MODE</h1>
+      <h1>SURVIVAL LOBBY</h1>
       <div class="invite-section">
         <div>Copy the link and invite friends:</div>
         <input type="text" id="room-link" readonly>
         <button id="copy-link-btn" class="icon-btn">📋 Copy</button>
       </div>
-      <div class="player-list-start-row">
-        <div style="margin-left: 40px;">Player:</div>
-        <div style="margin-right: 25px;">Status:</div>
-      </div>
-      <div id="player-list" class="player-list"></div>
-      <div id="lobby-timer" class="timer-hidden">
-        Starting in: <span id="timer-seconds">10</span>s
-      </div>
-      <div id="ready-help-text" style="font-size: 14px; margin-top: 20px;">
-        If you're ready press the button ⬇️
-      </div>
-      <div style="display: flex; flex-direction: column; align-items: center;">
-        <button id="ready-toggle-btn" class="ready-btn ready">READY</button>
-        <button class="back-to-menu-btn">⬅️ Back to menu</button>
+      <div id="lobby-timer"></div>
+      <div id="info-container">
+        <div style="display: flex; flex-direction: column; min-width: 250px;">
+          <div class="player-list-start-row">
+            <div style="margin-left: 15px;">Player:</div>
+            <div style="margin-right: 25px;">Status:</div>
+          </div>
+          <div id="player-list" class="player-list"></div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <div id="ready-help-text" style="font-size: 14px; margin-top: 10px;">
+            If you're ready press the button ⬇️
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: center;">
+            <button id="ready-toggle-btn" class="ready-btn ready">READY</button>
+            <button class="back-to-menu-btn">⬅️ Back to menu</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
   <div id="error-screen" style="display: none;">
-    <div class="lobby-card">
+    <div id="error-card" class="lobby-card">
       <h1 id="error-title"></h1>
       <div id="error-description"></div>
-      <div id="survival-list-first-row" class="player-list-start-row" style="display: none;">
-        <div style="margin-left: 40px;">Player:</div>
-        <div style="margin-right: 25px;">Score:</div>
+      <div id="error-info-wrapper">
+        <div id="survival-list-first-row" class="player-list-start-row" style="display: none;">
+          <div style="margin-left: 40px;">Player:</div>
+          <div style="margin-right: 25px;">Score:</div>
+        </div>
+        <div id="survival-list" class="player-list"></div>
+        <button class="back-to-menu-btn">⬅️ Back to menu</button>
+        <button style="display: none;" id="back-to-lobby-btn">⬅️ Back to lobby</button>
       </div>
-      <div id="survival-list" class="player-list"></div>
-      <button class="back-to-menu-btn">⬅️ Back to menu</button>
-      <button style="display: none;" id="back-to-lobby-btn">⬅️ Back to lobby</button>
     </div>
   </div>
 

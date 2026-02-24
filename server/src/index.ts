@@ -92,7 +92,17 @@ const getNumericId = (id: string) => {
     if (!multiplayerIdMap.has(id)) {
         const numId = nextMultiplayerId++
         multiplayerIdMap.set(id, numId)
-        io.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+        
+        const survivalPlayerIds = new Set<string>()
+        survivalRooms.forEach(room => {
+            room.players.forEach(pid => survivalPlayerIds.add(pid))
+        })
+
+        io.sockets.sockets.forEach((socket) => {
+            if (!survivalPlayerIds.has(socket.id)) {
+                socket.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+            }
+        })
     }
 
     return multiplayerIdMap.get(id)!
@@ -224,8 +234,6 @@ setInterval(async () => {
             socket.emit(GAME_EVENTS.SERVER_UPDATE, buffer)
         }
     })
-
-
 }, 1000 / TICK_RATE)
 
 io.on('connection', async (socket) => {
@@ -325,10 +333,21 @@ io.on('connection', async (socket) => {
                 room.players = room.players.filter(pid => pid !== playerToRemove)
                 room.readyStatus.delete(playerToRemove)
 
+                socket.leave(roomId)
+
+                const manager = survivalManagers.get(roomId)
+                if (manager) {
+                    manager.removePlayer(playerToRemove)
+                }
+
                 if (room.players.length === 0) {
                     survivalRooms.delete(roomId)
                 }
                 else {
+                    if (room.hostId === playerToRemove) {
+                        room.hostId = room.players[0]
+                    }
+
                     const updatedPlayers = room.players.map(pid => ({
                         id: pid,
                         name: players[pid]?.name || 'Unknown',
@@ -365,6 +384,46 @@ const waitForPlayerReady = async (socketId: string): Promise<boolean> => {
     return false
 }
 
+const removePlayerFromOtherRooms = (socketId: string, newRoomIdToJoin?: string) => {
+    survivalRooms.forEach((room, roomId) => {
+        if (roomId === newRoomIdToJoin) {
+            return
+        }
+
+        const playerIndex = room.players.findIndex(pid => pid === socketId)
+
+        if (playerIndex > -1) {
+            room.players.splice(playerIndex, 1)
+            room.readyStatus.delete(socketId)
+
+            const socket = io.sockets.sockets.get(socketId)
+
+            if (socket) {
+                socket.leave(roomId)
+            }
+
+            if (room.players.length === 0) {
+                survivalRooms.delete(roomId)
+                stopCountdown(roomId, io)
+            }
+            else {
+                if (room.hostId === socketId) {
+                    room.hostId = room.players[0]
+                }
+
+                const updatedPlayers = room.players.map(pid => ({
+                    id: pid,
+                    name: players[pid]?.name || 'Unknown',
+                    ready: room.readyStatus.get(pid)
+                }))
+
+                io.to(roomId).emit(GAME_EVENTS.ROOM_UPDATE, { players: updatedPlayers })
+            }
+        }
+    })
+
+}
+
 const setupPreGameEvents = (socket: Socket) => {
     socket.on(GAME_EVENTS.REQUEST_INITIAL_STATE, async () => {
         const isReady = await waitForPlayerReady(socket.id)
@@ -395,7 +454,7 @@ const setupPreGameEvents = (socket: Socket) => {
             await broadcastLeaderboard()
 
             multiplayerIdMap.forEach((numId, id) => {
-                io.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
+                socket.emit(GAME_EVENTS.ID_MAPPING, { id, numId })
             })
         }
     })
@@ -412,6 +471,8 @@ const setupPreGameEvents = (socket: Socket) => {
             console.error('Auth timeout for socket:', socket.id)
             return
         }
+
+        removePlayerFromOtherRooms(socket.id)
 
         const roomId = uuidv4()
         const roomData: iSurvivalRoom = {
@@ -446,6 +507,8 @@ const setupPreGameEvents = (socket: Socket) => {
             await new Promise(resolve => setTimeout(resolve, 100))
             attempts++
         }
+
+        removePlayerFromOtherRooms(socket.id, roomId)
 
         const room = survivalRooms.get(roomId)
 

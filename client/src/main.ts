@@ -837,6 +837,7 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.PLAYER_JOINED, (playerInfo: iPlayer) => {
+            if (this.isSurvival) return
             this.addOtherPlayer(playerInfo)
         })
 
@@ -850,6 +851,7 @@ export class MainScene extends Phaser.Scene {
         })
 
         this.socket.on(GAME_EVENTS.LEADERBOARD_UPDATE, (data: iLeaderboardUpdate[]) => {
+            if (this.isSurvival) return
             this.waveTextDisplay?.setText('Top 5 Global players:')
 
             this.setLeaderboardText(data)
@@ -985,9 +987,9 @@ export class MainScene extends Phaser.Scene {
             messageDescription.innerText = '🌍 Top 5 Global Survival players:'
             messageDescription.style = 'font-size: 20px'
 
-            list.innerHTML = data.map(p => `
+            list.innerHTML = data.map((p, i) => `
                 <div class='player-row'>
-                    <span>${p.username}</span>
+                    <span>${i + 1}. ${p.username}</span>
                     <div style="margin-right: 30px">${p.survival_high_score}</div>
                 </div>
             `).join('')
@@ -1037,6 +1039,7 @@ export class MainScene extends Phaser.Scene {
         if (this.playerContainer) {
             this.playerContainer.setAlpha(0.5)
         }
+
         const centerY = this.scale.height / 2
 
         this.specLeftBtn = this.add.text(50, centerY, '◀', { fontSize: '48px', color: '#ffffff', backgroundColor: '#00000088', padding: {x:10, y:10} })
@@ -1059,13 +1062,26 @@ export class MainScene extends Phaser.Scene {
             .setDepth(20002)
 
         this.uiGroup.add(this.spectatorNameText)
-        
+
         this.spectatorRespawnTimeText = this.add.text(this.scale.width / 2, 150, '', { fontSize: '24px', color: '#ff0000' })
             .setOrigin(0.5)
             .setScrollFactor(0)
             .setDepth(20002)
 
         this.uiGroup.add(this.spectatorRespawnTimeText)
+
+        this.cameras.main.ignore([ 
+            this.specLeftBtn, this.specRightBtn, this.spectatorNameText, this.spectatorRespawnTimeText
+        ])
+
+        const respawnTimeInterval = setInterval(() => {
+            this.respawnTime -= 1000
+            this.spectatorRespawnTimeText?.setText(`Respawn in: ${this.respawnTime / 1000}s`)
+
+            if (this.respawnTime <= 0) {
+                clearInterval(respawnTimeInterval)
+            }
+        }, 1000)
 
         this.updateSpectatorUI()
     }
@@ -1088,15 +1104,6 @@ export class MainScene extends Phaser.Scene {
         else {
             this.spectatorNameText?.setText(`WAITING FOR RESPAWN...`)
         }
-
-        const respawnTimeInterval = setInterval(() => {
-            this.respawnTime -= 1000
-            this.spectatorRespawnTimeText?.setText(`Respawn in: ${this.respawnTime / 1000}s`)
-
-            if (this.respawnTime <= 0) {
-                clearInterval(respawnTimeInterval)
-            }
-        }, 1000)
 
         if (this.minimap) {
             this.spectatorNameText && this.minimap.ignore(this.spectatorNameText)

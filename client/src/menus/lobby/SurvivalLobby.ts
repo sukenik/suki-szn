@@ -8,6 +8,8 @@ export class SurvivalLobby {
     private timerDiv: HTMLElement
     private readyBtn: HTMLButtonElement
     private readyHelpText: HTMLButtonElement
+    private totalPlayersAmount: number = 0
+    private readyPlayersAmount: number = 0
 
     constructor(socket: Socket) {
         this.socket = socket
@@ -40,7 +42,6 @@ export class SurvivalLobby {
     }
 
     private setupListeners(roomId: string) {
-
         this.readyBtn.onclick = () => {
             this.socket.emit(GAME_EVENTS.TOGGLE_READY, roomId)
             const isReady = this.readyBtn.innerText === 'NOT READY'
@@ -66,21 +67,21 @@ export class SurvivalLobby {
         })
 
         this.socket.on(GAME_EVENTS.STARTING_COUNTDOWN, (seconds: number) => {
-            const secondsSpan = document.getElementById('timer-seconds')
-
-            if (this.timerDiv && secondsSpan) {
-                this.timerDiv.className = 'timer-visible'
-                secondsSpan.innerText = seconds.toString()
-            }
+            this.timerDiv.innerText = `Starting in: ${seconds.toString()}s`
         })
 
         this.socket.on(GAME_EVENTS.STOP_COUNTDOWN, () => {
-            this.timerDiv.className = 'timer-hidden'
+            this.timerDiv.textContent = `To start all players be ready ${this.readyPlayersAmount}/${this.totalPlayersAmount}`
         })
     }
 
     private renderPlayers(players: SurvivalRoomUpdateType) {
         const list = document.getElementById('player-list')!
+
+        this.readyPlayersAmount = players.filter(({ ready }) => ready).length
+        this.totalPlayersAmount = players.length
+
+        this.timerDiv.innerText = `To start all players be ready ${this.readyPlayersAmount}/${this.totalPlayersAmount}`
 
         list.innerHTML = players.map(p => `
             <div class='player-row'>
@@ -94,7 +95,7 @@ export class SurvivalLobby {
 
     public hide() {
         this.lobbyElement.style.display = 'none'
-        this.timerDiv.className = 'timer-hidden'
+        this.timerDiv.innerText = ''
         this.readyBtn.innerText = 'READY!'
         this.readyHelpText.innerText = `If you're ready press the button ⬇️`
         this.readyBtn.classList.remove('not-ready')
