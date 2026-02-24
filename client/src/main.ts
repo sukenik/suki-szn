@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { Socket } from 'socket.io-client'
 import { GAME_EVENTS, GAME_MODE, GAME_SETTINGS } from '../../shared/consts'
 import type { iBullet, iCircleObstacle, iCompoundRectObstacle, iLeaderboardUpdate, iPlayer, iPlayerInputs, iRectObstacle, iSurvivalLeaderboardUpdate, ObstaclesType } from '../../shared/types'
+import { MOBILE_MAX_WIDTH } from './config'
 import { SpaceShip } from './entities/SpaceShip'
 import type { iBulletSprite } from './entities/types'
 import { SurvivalLobby } from './menus/lobby/SurvivalLobby'
@@ -68,7 +69,7 @@ export class MainScene extends Phaser.Scene {
 
     create() {
         this.socket = this.game.registry.get('socket')
-        this.isMobile = this.scale.width < 1000
+        this.isMobile = this.scale.width < MOBILE_MAX_WIDTH
 
         const authProps = this.socket.auth as { [key: string]: any }
         this.isSurvival = authProps.mode === GAME_MODE.SURVIVAL

@@ -36,3 +36,5 @@ export const appConfig = {
     clientUrl: import.meta.env.VITE_CLIENT_URL ?? 'http://localhost:5173',
     USER_TOKEN: 'suki_token'
 }
+
+export const MOBILE_MAX_WIDTH = 1000
