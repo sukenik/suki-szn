@@ -236,7 +236,7 @@ canvas {
     z-index: 2000;
 }
 
-.mode-selector-card {
+#mode-selector-card {
     background: rgba(0, 0, 0, 0.85);
     border: 2px solid #00f2ff;
     border-radius: 15px;
@@ -335,4 +335,14 @@ canvas {
     height: 200px;
     border-radius: 15px;
     border: 1px solid white;
+}
+
+@media screen and (max-width: 1000px) and (orientation: portrait) {
+    #mode-selector-card {
+        width: 300px;
+    }
+
+    .mode-options {
+        flex-direction: column;
+    }
 }
