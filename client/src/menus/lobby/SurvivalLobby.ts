@@ -67,7 +67,9 @@ export class SurvivalLobby {
         })
 
         this.socket.on(GAME_EVENTS.STARTING_COUNTDOWN, (seconds: number) => {
-            this.timerDiv.innerText = `Starting in: ${seconds.toString()}s`
+            this.timerDiv.innerText = seconds
+                ? `Starting in: ${seconds.toString()}s`
+                : `Let's go 🔥`
         })
 
         this.socket.on(GAME_EVENTS.STOP_COUNTDOWN, () => {

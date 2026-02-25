@@ -320,6 +320,10 @@ canvas {
     margin-top: 35px;
 }
 
+.ready-btn {
+    border: none;
+}
+
 .ready-btn.ready {
     background: #2ecc71;
 }
