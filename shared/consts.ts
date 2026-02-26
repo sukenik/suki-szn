@@ -40,6 +40,7 @@ export const GAME_EVENTS = {
   GAME_OVER: 'gameOver',
   SURVIVAL_LEADERBOARD_UPDATE: 'survivalLeaderboardUpdate',
   ID_MAPPING: 'idMapping',
+  SERVER_READY: 'serverReady'
 } as const
 
 export const GAME_MODE = {
@@ -52,4 +53,5 @@ export type GameModeType = typeof GAME_MODE[keyof typeof GAME_MODE]
 export const GAME_ERRORS = {
   ROOM_NOT_FOUND: 'roomNotFound',
   GAME_IN_PROGRESS: 'gameInProgress',
+  AUTH_FAILED: 'authFailed',
 }

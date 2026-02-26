@@ -247,6 +247,7 @@ io.on('connection', async (socket) => {
 
     if (existingPlayer) {
         handleReconnection(socket, existingPlayer, players)
+        socket.emit(GAME_EVENTS.SERVER_READY)
     }
     else {
         players[socket.id] = {
@@ -295,8 +296,11 @@ io.on('connection', async (socket) => {
 
                 console.log('New user created in DB:', user.username)
             }
+
+            socket.emit(GAME_EVENTS.SERVER_READY)
         }
         catch (error) {
+            socket.emit('error', GAME_ERRORS.AUTH_FAILED)
             console.error('Authentication failed:', error)
             delete players[socket.id]
             socket.disconnect()
@@ -501,6 +505,20 @@ const setupPreGameEvents = (socket: Socket) => {
     socket.on(GAME_EVENTS.JOIN_SURVIVAL, async (roomId: string) => {
         console.log(`User ${socket.id} trying to join room: ${roomId}`)
 
+        const isReady = await waitForPlayerReady(socket.id)
+
+        if (!isReady) {
+            console.error(`[JOIN_SURVIVAL] Player ${socket.id} never became ready.`)
+            return
+        }
+
+        const room = survivalRooms.get(roomId)
+
+        if (!room) {
+            socket.emit('error', GAME_ERRORS.ROOM_NOT_FOUND)
+            return
+        }
+
         let attempts = 0
 
         while (!players[socket.id] && attempts < 20) {
@@ -509,13 +527,6 @@ const setupPreGameEvents = (socket: Socket) => {
         }
 
         removePlayerFromOtherRooms(socket.id, roomId)
-
-        const room = survivalRooms.get(roomId)
-
-        if (!room) {
-            socket.emit('error', GAME_ERRORS.ROOM_NOT_FOUND)
-            return
-        }
 
         if (room.isStarted && !room.players.includes(socket.id)) {
             socket.emit('error', GAME_ERRORS.GAME_IN_PROGRESS)
