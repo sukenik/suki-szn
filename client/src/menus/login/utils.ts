@@ -14,11 +14,13 @@ const launchPhaser = (socket: Socket, loginScreen: HTMLElement | null) => {
 	}
 }
 
-export const getSocket = (token: string, mode: GameModeType, existingRoom: string | null) => {
-	if (socket) {
+export const getSocket = (token: string, existingRoom: string | null, mode?: GameModeType) => {
+	if (socket && socket.connected) {
 		socket.auth = { token, mode, roomId: existingRoom }
 		return socket
 	}
+
+	if (socket) socket.removeAllListeners()
 
 	return io(appConfig.serverUrl, {
 		auth: {
@@ -27,6 +29,7 @@ export const getSocket = (token: string, mode: GameModeType, existingRoom: strin
 			roomId: existingRoom
 		},
 		transports: ['websocket'],
+		autoConnect: false
 	})
 }
 
@@ -39,25 +42,31 @@ export const startGame = (
 ) => {
 	if (gameInstance) return
 
-	socket = getSocket(token, mode, existingRoom)
+	socket = getSocket(token, existingRoom, mode)
 
-	socket.on('connect', () => {
+	socket.on('error', (message) => {
+		clearLoadingPage()
+
+		const errorPage = document.getElementById('error-screen')!
+		const messageTitle = document.getElementById('error-title')!
+		errorPage.style.display = 'flex'
+
+		if (message === GAME_ERRORS.ROOM_NOT_FOUND) {
+			messageTitle.innerText = '🏘️ Room not found'
+		}
+		else if (message === GAME_ERRORS.GAME_IN_PROGRESS) {
+			messageTitle.innerText = '🎮 Game in progress'
+		}
+		else if (message === GAME_ERRORS.AUTH_FAILED) {
+			messageTitle.innerText = '❌ Authentication failed'
+		}
+		else {
+			messageTitle.innerText = '🤔 Something went wrong'
+		}
+	})
+
+	socket.on(GAME_EVENTS.SERVER_READY, () => {
 		if (!socket) return
-
-		socket.on('error', (message) => {
-			clearLoadingPage()
-
-			const errorPage = document.getElementById('error-screen')!
-			const messageTitle = document.getElementById('error-title')!
-			errorPage.style.display = 'flex'
-
-			if (message === GAME_ERRORS.ROOM_NOT_FOUND) {
-				messageTitle.innerText = '🏘️ Room not found'
-			}
-			else if (message === GAME_ERRORS.GAME_IN_PROGRESS) {
-				messageTitle.innerText = '🎮 Game in progress'
-			}
-		})
 
 		if (mode === GAME_MODE.MULTIPLAYER) {
 			clearLoadingPage()
@@ -93,6 +102,8 @@ export const startGame = (
 			})
 		}
 	})
+
+	socket.connect()
 }
 
 export const setBackToMenuBtns = (

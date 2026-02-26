@@ -189,7 +189,7 @@ async function startApp() {
             hideLoading()
 
             const urlParams = new URLSearchParams(window.location.search)
-            const existingRoom = urlParams.get('room')
+            const existingRoom = urlParams.get('room')?.trim() || null
 
             if (existingRoom) {
                 showStatus('Joining survival room...')
