@@ -122,19 +122,25 @@ export const setBackToMenuBtns = (
 		})
 	}
 }
-
-export const isIOSWebView = (): boolean => {
+export const getIsWebView = (): boolean => {
     const ua = window.navigator.userAgent.toLowerCase()
+
     const isIOS = /iphone|ipad|ipod/.test(ua)
+    const isAndroid = /android/.test(ua)
 
-    const isSafari = /safari/.test(ua)
-    const isChrome = /crios/.test(ua)
+    const isWebView = ua.includes('wv') || (isAndroid && ua.includes('version/'))
 
-    return isIOS && !isSafari && !isChrome
+    const isIOSWebView = isIOS && !ua.includes('safari') && !ua.includes('crios')
+
+    return isIOSWebView || isWebView || ua.includes('linkedinapp') || ua.includes('fbav')
 }
 
 export const showWebViewWarning = () => {
     if (document.getElementById('webview-warning')) return
+
+	const isAndroid = /android/.test(navigator.userAgent.toLowerCase())
+    const browserName = isAndroid ? 'Chrome' : 'Safari'
+    const iconStyle = isAndroid ? '⋮' : 'Share/⋮'
 
     const overlay = document.createElement('div')
     overlay.id = 'webview-warning'
@@ -150,14 +156,14 @@ export const showWebViewWarning = () => {
         <div style="font-size: 50px; margin-bottom: 20px;">⚠️</div>
         <h2 style="margin-bottom: 15px;">Google Login Restricted</h2>
         <p style="font-size: 18px; line-height: 1.5; margin-bottom: 25px;">
-            LinkedIn's browser doesn't support Google Login.<br>
-            Please tap the <b>three dots (⋮)</b> or <b>Share</b> icon and select 
-            <br><span style="color: #3498db; font-weight: bold;">"Open in Safari"</span> to play.
+			To keep your account safe, Google requires a standard browser.<br>
+            Please tap the <b>${iconStyle}</b> icon and select
+			<span style="color: #3498db; font-weight: bold;">"Open in ${browserName}"</span>
         </p>
         <button id="close-warning" style="
             background: #444; color: white; border: none; 
             padding: 10px 20px; border-radius: 5px; cursor: pointer;
-        ">Got it, thanks</button>
+        ">Got it</button>
     `;
 
     document.body.appendChild(overlay)

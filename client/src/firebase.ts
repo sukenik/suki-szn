@@ -9,7 +9,7 @@ import {
     signInWithRedirect,
     updateProfile
 } from 'firebase/auth'
-import { isIOSWebView, showWebViewWarning } from './menus/login/utils'
+import { getIsWebView, showWebViewWarning } from './menus/login/utils'
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,7 +29,7 @@ getRedirectResult(auth).catch((error) => {
 
 export const googleProvider = new GoogleAuthProvider()
 export const loginWithGoogle = async () => {
-    if (isIOSWebView()) {
+    if (getIsWebView()) {
         showWebViewWarning()
         return
     }
