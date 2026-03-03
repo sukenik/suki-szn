@@ -122,3 +122,47 @@ export const setBackToMenuBtns = (
 		})
 	}
 }
+
+export const isIOSWebView = (): boolean => {
+    const ua = window.navigator.userAgent.toLowerCase()
+    const isIOS = /iphone|ipad|ipod/.test(ua)
+
+    const isSafari = /safari/.test(ua)
+    const isChrome = /crios/.test(ua)
+
+    return isIOS && !isSafari && !isChrome
+}
+
+export const showWebViewWarning = () => {
+    if (document.getElementById('webview-warning')) return
+
+    const overlay = document.createElement('div')
+    overlay.id = 'webview-warning'
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.9); z-index: 10000;
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; color: white; text-align: center;
+        padding: 20px; font-family: sans-serif;
+    `;
+
+    overlay.innerHTML = `
+        <div style="font-size: 50px; margin-bottom: 20px;">⚠️</div>
+        <h2 style="margin-bottom: 15px;">Google Login Restricted</h2>
+        <p style="font-size: 18px; line-height: 1.5; margin-bottom: 25px;">
+            LinkedIn's browser doesn't support Google Login.<br>
+            Please tap the <b>three dots (⋮)</b> or <b>Share</b> icon and select 
+            <br><span style="color: #3498db; font-weight: bold;">"Open in Safari"</span> to play.
+        </p>
+        <button id="close-warning" style="
+            background: #444; color: white; border: none; 
+            padding: 10px 20px; border-radius: 5px; cursor: pointer;
+        ">Got it, thanks</button>
+    `;
+
+    document.body.appendChild(overlay)
+
+    document.getElementById('close-warning')?.addEventListener('click', () => {
+        overlay.remove()
+    })
+}
