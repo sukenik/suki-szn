@@ -9,7 +9,7 @@ import {
     signInWithRedirect,
     updateProfile
 } from 'firebase/auth'
-import { isIOSWebView } from './menus/login/utils'
+import { isIOSWebView, showWebViewWarning } from './menus/login/utils'
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,10 +28,10 @@ getRedirectResult(auth).catch((error) => {
 })
 
 export const googleProvider = new GoogleAuthProvider()
-
 export const loginWithGoogle = async () => {
     if (isIOSWebView()) {
-        await signInWithRedirect(auth, googleProvider)
+        showWebViewWarning()
+        return
     }
     else {
         try {
@@ -39,6 +39,9 @@ export const loginWithGoogle = async () => {
         } catch (error: any) {
             if (error.code === 'auth/popup-blocked') {
                 await signInWithRedirect(auth, googleProvider)
+            }
+            else {
+                console.error('Auth error:', error)
             }
         }
     }
