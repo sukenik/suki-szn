@@ -1,12 +1,15 @@
 import { initializeApp } from 'firebase/app'
 import {
-	getAuth,
-	GoogleAuthProvider,
-	signInWithPopup,
-    signInWithEmailAndPassword, 
     createUserWithEmailAndPassword,
+    getAuth,
+    getRedirectResult,
+    GoogleAuthProvider,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    signInWithRedirect,
     updateProfile
 } from 'firebase/auth'
+import { isIOSWebView } from './menus/login/utils'
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,9 +22,28 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
+
+getRedirectResult(auth).catch((error) => {
+    console.error('Redirect auth error:', error)
+})
+
 export const googleProvider = new GoogleAuthProvider()
 
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider)
+export const loginWithGoogle = async () => {
+    if (isIOSWebView()) {
+        await signInWithRedirect(auth, googleProvider)
+    }
+    else {
+        try {
+            await signInWithPopup(auth, googleProvider)
+        } catch (error: any) {
+            if (error.code === 'auth/popup-blocked') {
+                await signInWithRedirect(auth, googleProvider)
+            }
+        }
+    }
+}
+
 export const loginEmail = (email: string, pass: string) => 
     signInWithEmailAndPassword(auth, email, pass)
 

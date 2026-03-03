@@ -122,3 +122,13 @@ export const setBackToMenuBtns = (
 		})
 	}
 }
+
+export const isIOSWebView = (): boolean => {
+    const ua = window.navigator.userAgent.toLowerCase()
+    const isIOS = /iphone|ipad|ipod/.test(ua)
+
+    const isSafari = /safari/.test(ua)
+    const isChrome = /crios/.test(ua)
+
+    return isIOS && !isSafari && !isChrome
+}
